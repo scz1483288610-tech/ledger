@@ -265,7 +265,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 <script>
 (function(){
 'use strict';
-var VERSION='1.0.0';
+var VERSION='1.0.1';
 
 /* ================= utils ================= */
 var $=function(s,r){return (r||document).querySelector(s);};
@@ -664,17 +664,18 @@ function renderSave(){
   var ringTarget=due?due.amount:Math.max(1,bb);
   var pct=due?Math.min(1,newDep/due.amount):0;
   html+='<div class="card"><h3>宝宝基金<span class="r">'+(due?'尾款 '+md(due.date):'')+'</span></h3>'+
-    '<div class="weekhead"><div class="ring">'+ringSVG(pct,false)+'<div class="c"><b class="num">'+Math.round(pct*100)+'%</b><small>尾款进度</small></div></div>'+
+    '<div class="weekhead"><div class="ring">'+ringSVG(pct,false)+'<div class="c"><b class="num">'+Math.round(pct*100)+'%</b><small>我的存入占尾款</small></div></div>'+
     '<div class="stats"><div class="kv"><span>现在余额</span><span class="num"><b>'+money(bb)+'</b></span></div>'+
-    '<div class="kv"><span>计划起新存入</span><span class="num">'+money(newDep)+'</span></div>'+
+    '<div class="kv"><span>我已存入(计划起)</span><span class="num">'+money(newDep)+'</span></div>'+
     (due?'<div class="kv"><span>尾款</span><span class="num">'+money(due.amount)+'</span></div>':'')+'</div></div>';
   if(due){
     var dl=daysBetween(t,due.date),paid=!!S.done[due.id];
     var after=bb+remain-(paid?0:due.amount);
     html+='<div class="kv" style="margin-top:12px"><span>'+(paid?'尾款已付':'离尾款还有')+'</span><span class="num">'+(paid?'—':dl+' 天')+'</span></div>'+
-      '<div class="kv"><span>到尾款前还计划存入(含太太估计)</span><span class="num">'+money(remain)+'</span></div>'+
-      '<div class="kv"><span>计划新存入合计</span><span class="num '+((newDep+remain)>=due.amount?'good':'bad')+'">'+money(newDep+remain)+(((newDep+remain)>=due.amount)?' · 够尾款':' · 还差 '+money(due.amount-newDep-remain))+'</span></div>'+
-      '<div class="kv"><span>付完尾款后基金预计</span><span class="num '+(after<0?'bad':'')+'">'+money(after)+'</span></div>';
+      '<div class="kv"><span>到尾款前我还计划存入</span><span class="num">'+money(remain)+'</span></div>'+
+      '<div class="kv"><span>我这边新存入合计</span><span class="num">'+money(newDep+remain)+'</span></div>'+
+      '<div class="kv"><span>离尾款还差(太太那边另算)</span><span class="num '+((newDep+remain)>=due.amount?'good':'')+'">'+((newDep+remain)>=due.amount?'我这边就够了':money(due.amount-newDep-remain))+'</span></div>'+
+      '<div class="kv"><span>付完尾款后基金预计(不含太太)</span><span class="num '+(after<0?'bad':'')+'">'+money(after)+'</span></div>';
   }
   html+='<div class="btns"><button class="btn sec sm" type="button" data-act="dep" data-m="in">存入</button><button class="btn sec sm" type="button" data-act="dep" data-m="out">取出(买宝宝用品等)</button></div></div>';
   // plan list
