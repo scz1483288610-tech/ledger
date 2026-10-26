@@ -274,6 +274,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
       </div>
       <div class="chips" id="fastChips"></div>
       <div class="chips" id="catChips" style="padding-top:2px"></div>
+      <p class="hint" id="subHint" style="margin:0 0 2px" hidden></p>
       <div class="frow">
         <div class="seg grow" id="paySeg"><button type="button" data-p="card" aria-pressed="true">信用卡</button><button type="button" data-p="debit" aria-pressed="false">储蓄卡</button></div>
         <label class="tog"><input id="sp" type="checkbox">特殊,不占额度</label>
@@ -284,6 +285,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 
     <div class="card" id="weekCard"></div>
     <div class="card" id="monthCard"></div>
+    <div class="card" id="subCard"></div>
     <div class="card" id="catCard"></div>
     <div class="card" id="dogCard"></div>
     <div id="entries"></div>
@@ -316,7 +318,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 <script>
 (function(){
 'use strict';
-var VERSION='1.1.0';
+var VERSION='1.2.0';
 
 /* ================= utils ================= */
 var $=function(s,r){return (r||document).querySelector(s);};
@@ -358,7 +360,7 @@ function starter(){
   return {
     v:1,
     settings:{
-      weekQuota:1000,monthTarget:4000,planMonthly:4000,instMonthly:0,bufferTarget:3000,
+      weekQuota:1000,monthTarget:4000,planMonthly:4000,instMonthly:0,bufferTarget:3000,subBudget:500,
       trackStart:todayStr(),cardFrom:todayStr(),stmtDay:23,dueDay:11,payDay:20,
       horizon:ymd(new Date(new Date().getFullYear()+1,new Date().getMonth(),28)),
       babyOpen:0,planStart:todayStr(),
@@ -399,15 +401,29 @@ function load(){
     return;
   }
   // 从 1.0.x 升级的第一次:自动留一份更新前的原始数据,永不覆盖
-  try{if(o&&typeof o==='object'&&!o.app&&!localStorage.getItem(LSBAK))localStorage.setItem(LSBAK,raw);}catch(e){}
+  try{
+    if(o&&typeof o==='object'){
+      if(!o.app){if(!localStorage.getItem(LSBAK))localStorage.setItem(LSBAK,raw);}
+      else if(o.app!==VERSION){var bk='ledger.bak.from-'+o.app;if(!localStorage.getItem(bk))localStorage.setItem(bk,raw);}
+    }
+  }catch(e){}
   if(o)S=norm(o);
 }
-function hasBak(){try{return !!localStorage.getItem(LSBAK);}catch(e){return false;}}
+var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前']];
+function bakList(){var out=[];BAKS.forEach(function(b){try{if(localStorage.getItem(b[0]))out.push(b);}catch(e){}});return out;}
 function hasData(){return S.entries.length||S.defs.length||S.accounts.length;}
 
 /* ================= settings helpers ================= */
 var st=function(){return S.settings;};
 function cardOf(e){return e.m==='card';}
+var SUBCAT='订阅';
+function isSub(x){return (st().subBudget||0)>0&&x.c===SUBCAT&&!x.sp;}
+function isCounted(x){return !x.sp&&!isSub(x);}
+function dailyTarget(){return Math.max(1,st().monthTarget-Math.max(0,st().subBudget||0));}
+function subStats(){
+  var c=cycleOfDate(todayStr()),spent=r2(sum(entriesIn(c.start,c.stmt,isSub),function(x){return x.a;})),b=st().subBudget||0;
+  return {start:c.start,end:c.stmt,spent:spent,budget:b,remain:r2(b-spent)};
+}
 
 /* ================= card cycle ================= */
 function cycleOfDate(t){
@@ -426,15 +442,18 @@ function entriesIn(a,b,f){return S.entries.filter(function(x){return x.d>=a&&x.d
 function cardAmount(due){
   var c=dueCycle(due),t=todayStr();
   var cardAll=entriesIn(c.start,c.stmt,cardOf);
-  var norm_=sum(cardAll.filter(function(x){return !x.sp;}),function(x){return x.a;});
+  var norm_=sum(cardAll.filter(isCounted),function(x){return x.a;});
+  var subC=sum(cardAll.filter(isSub),function(x){return x.a;});
+  var subD=sum(entriesIn(c.start,c.stmt,function(x){return isSub(x)&&!cardOf(x);}),function(x){return x.a;});
   var spc=sum(cardAll.filter(function(x){return x.sp;}),function(x){return x.a;});
-  var closed=t>c.stmt,inst=st().instMonthly||0,base;
-  if(closed)base=norm_;
+  var closed=t>c.stmt,inst=st().instMonthly||0,base,sb=Math.max(0,st().subBudget||0);
+  if(closed)base=norm_+subC;
   else{
     // 没出账的账期:已记的 + 剩下的天数按"预测每月日常"的日均估。记得越多、花得越少,预测越准、越低。
     var total=Math.max(1,daysBetween(c.start,c.stmt)+1),pm=st().planMonthly||st().monthTarget;
     var rem=Math.max(0,Math.min(total,daysBetween(t<c.start?addDays(c.start,-1):t,c.stmt)));
-    base=norm_+pm/total*rem;
+    // 订阅单独预留:每账期按订阅预算先占着,实际刷得更多就按实际
+    base=norm_+Math.max(0,pm-sb)/total*rem+Math.max(subC,sb-subD);
   }
   return {amount:r2(base+spc+inst),est:!closed,cyc:c};
 }
@@ -525,12 +544,12 @@ function walletInfo(){
 }
 
 /* ================= week / month ================= */
-function dayTotal(d){return sum(S.entries.filter(function(x){return x.d===d&&!x.sp;}),function(x){return x.a;});}
+function dayTotal(d){return sum(S.entries.filter(function(x){return x.d===d&&isCounted(x);}),function(x){return x.a;});}
 function weekInfo(){
   var t=todayStr(),ws=mondayOf(t),we=addDays(ws,6),from=ws<st().trackStart?st().trackStart:ws;
   var total=Math.max(1,daysBetween(from,we)+1),partial=total<7;
   var q=partial?Math.round(st().weekQuota*total/7):st().weekQuota;
-  var spent=sum(entriesIn(from,we,function(x){return !x.sp;}),function(x){return x.a;});
+  var spent=sum(entriesIn(from,we,isCounted),function(x){return x.a;});
   return {t:t,ws:ws,we:we,from:from,total:total,partial:partial,q:q,spent:spent,remain:q-spent,
     left:Math.max(1,daysBetween(t,we)+1),elapsed:Math.max(1,daysBetween(from,t)+1)};
 }
@@ -614,7 +633,7 @@ function monthPeriod(){
   return {start:c.start,end:c.stmt,t:t,started:t>=st().cardFrom&&c.start>=st().cardFrom,total:daysBetween(c.start,c.stmt)+1};
 }
 function renderMonth(){
-  var P=monthPeriod(),tg=st().monthTarget;
+  var P=monthPeriod(),tg=dailyTarget();
   if(!P.started){
     var first=st().cardFrom,dd=daysBetween(P.t,first);
     $('#monthCard').innerHTML='<h3>本账期<span class="r">信用卡 '+st().stmtDay+' 号出账</span></h3>'+
@@ -622,7 +641,7 @@ function renderMonth(){
       '<p class="hint">到那天起日常花销刷信用卡,'+md(first)+' 到下个 '+st().stmtDay+' 号是一个完整账期,目标 '+money(tg)+'。在这之前的花销用储蓄卡。</p>';
     return;
   }
-  var list=entriesIn(P.start,P.end,function(x){return !x.sp;}),spent=sum(list,function(x){return x.a;});
+  var list=entriesIn(P.start,P.end,isCounted),spent=sum(list,function(x){return x.a;});
   var elapsed=Math.max(1,daysBetween(P.start,P.t)+1),pace=Math.min(100,elapsed/P.total*100),pct=Math.min(100,spent/tg*100);
   var over=spent>tg,proj=spent/elapsed*P.total;
   var cardAll=sum(entriesIn(P.start,P.end,cardOf),function(x){return x.a;})+(st().instMonthly||0);
@@ -631,6 +650,7 @@ function renderMonth(){
     '<div class="num" style="font-size:28px;font-weight:700;letter-spacing:-.02em">'+(over?'<span class="bad"':'<span class="mark"')+' data-count="mspent" data-v="'+spent+'" data-f="m">'+money(spent)+'</span> <span class="dim" style="font-size:15px;font-weight:500">/ '+money(tg)+'</span></div>'+
     '<div class="bar'+(over?' over':'')+'" style="margin-top:10px"><i class="g" data-key="mbar" data-prop="width" data-from="0%" data-to="'+pct+'%" style="width:'+pct+'%"></i><span class="tick" style="left:calc('+pace+'% - 1px)"></span></div>'+
     '<div class="meta"><span>还剩 '+money(Math.max(0,tg-spent))+' · '+(daysBetween(P.t,P.end)+1)+' 天</span><span>照这个速度整期约 '+money(proj)+'</span></div>'+
+    '<div class="meta" style="margin-top:2px"><span>日常额度 = 目标 '+money(st().monthTarget)+(st().subBudget>0?' − 订阅 '+money(st().subBudget):'')+'</span></div>'+
     '<div class="meta" style="margin-top:2px"><span>信用卡本期账单预计 '+money(cardAll)+(st().instMonthly?'(含分期 '+money(st().instMonthly)+')':'')+'</span></div>';
   // calendar
   html+='<div class="cal">'+WD.map(function(x){return '<div class="wd">'+x+'</div>';}).join('');
@@ -643,6 +663,23 @@ function renderMonth(){
   }
   html+='</div><div class="legend"><span><i style="background:var(--b2)"></i>没花</span><span><i style="background:var(--b3)"></i>在日均内('+money(daily)+')</span><span><i style="background:var(--y)"></i>略超</span><span><i style="background:var(--r)"></i>超过 1.5 倍</span></div>';
   $('#monthCard').innerHTML=html;
+}
+function renderSub(){
+  var el=$('#subCard'),sb=st().subBudget||0;
+  if(!(sb>0)){el.hidden=true;el.innerHTML='';return;}
+  el.hidden=false;
+  var ss=subStats(),over=ss.spent>sb,pct=Math.min(100,ss.spent/sb*100);
+  var list=entriesIn(ss.start,ss.end,isSub).sort(function(a,b){return a.d<b.d?1:a.d>b.d?-1:0;});
+  var html='<h3>订阅<span class="r">每账期 '+money(sb)+' · 从生活费里单独算</span></h3>'+
+    '<div class="num" style="font-size:24px;font-weight:700;letter-spacing:-.02em"><span class="'+(over?'bad':'')+'" data-count="subspent" data-v="'+ss.spent+'" data-f="m">'+money(ss.spent)+'</span> <span class="dim" style="font-size:14px;font-weight:500">/ '+money(sb)+'</span></div>'+
+    '<div class="bar'+(over?' over':'')+'" style="margin-top:10px"><i class="g" data-key="subbar" data-prop="width" data-from="0%" data-to="'+pct+'%" style="width:'+pct+'%"></i></div>'+
+    '<div class="meta"><span>'+(over?'超出 '+money(-ss.remain):'还剩 '+money(ss.remain))+'</span><span>'+md(ss.start)+' – '+md(ss.end)+'</span></div>';
+  if(list.length){
+    html+='<div class="list" style="margin-top:10px">'+list.map(function(x){
+      return '<div class="row"><div><b>'+esc(x.n||'订阅')+'</b><span class="tag">'+(x.m==='card'?'信用卡':'储蓄卡')+'</span><div class="rn">'+md(x.d)+'</div></div><div class="ra num">'+money(x.a)+'</div><button class="x" type="button" data-act="del" data-id="'+esc(x.id)+'" aria-label="删除这一笔">删除</button></div>';
+    }).join('')+'</div>';
+  }else html+='<p class="hint">记账时选“订阅”类,就算在这里,不占每天和每周的额度。</p>';
+  el.innerHTML=html;
 }
 function renderCats(){
   var P=monthPeriod(),w=weekInfo(),a,b,label;
@@ -676,9 +713,10 @@ function renderEntries(){
   var html='<div class="sec-h"><h2>最近记录</h2><span class="hint" style="margin:0">近 14 天</span></div>';
   Object.keys(days).sort().reverse().forEach(function(d){
     var rows=days[d];
-    html+='<div class="day"><div class="dayhead"><span>'+dayLabel(d,t)+'</span><span class="num">'+money(sum(rows,function(x){return x.a;}))+'</span></div><div class="list">';
+    var dsub=sum(rows.filter(isSub),function(x){return x.a;}),dmain=sum(rows,function(x){return x.a;})-dsub;
+    html+='<div class="day"><div class="dayhead"><span>'+dayLabel(d,t)+'</span><span class="num">'+money(dmain)+(dsub?' · 订阅 '+money(dsub):'')+'</span></div><div class="list">';
     rows.slice().reverse().forEach(function(x){
-      var tags=(x.m==='card'?'<span class="tag">信用卡</span>':'<span class="tag">储蓄卡</span>')+(x.sp?'<span class="tag hl">特殊</span>':'');
+      var tags=(x.m==='card'?'<span class="tag">信用卡</span>':'<span class="tag">储蓄卡</span>')+(x.sp?'<span class="tag hl">特殊</span>':'')+(isSub(x)?'<span class="tag hl">订阅预算</span>':'');
       html+='<div class="row'+(x.id===LASTNEW?' new':'')+'"><div><b>'+esc(x.c)+'</b>'+tags+(x.n?'<div class="rn">'+esc(x.n)+'</div>':'')+'</div><div class="ra num">'+money(x.a)+'</div><button class="x" type="button" data-act="del" data-id="'+esc(x.id)+'" aria-label="删除这一笔">删除</button></div>';
     });
     html+='</div></div>';
@@ -708,7 +746,7 @@ function renderWallet(){
     '<div class="wc"><span>信用卡待还</span><b class="num" data-count="wowe" data-v="'+w.owed.total+'" data-f="i">'+money(Math.round(w.owed.total))+'</b></div>'+third+'</div>'+
     '<div class="wsub"><span>手里现金 '+money(Math.round(w.cash))+' − 待还,记一笔就会变</span><span class="go">明细 ›</span></div>';
 }
-function renderToday(){renderOnboard();renderWallet();renderWeek();renderMonth();renderCats();renderDog();renderEntries();}
+function renderToday(){renderOnboard();renderWallet();renderWeek();renderMonth();renderSub();renderCats();renderDog();renderEntries();}
 
 /* ================= render: cash ================= */
 var chartPlay=true;
@@ -890,6 +928,7 @@ function syncForm(){
   var p=F.pay||autoPay(d);
   $$('#paySeg button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.p===p));});
   $$('#catChips .chip').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.cat===F.cat));});
+  var sh=$('#subHint');if(F.cat===SUBCAT&&st().subBudget>0&&!$('#sp').checked){sh.hidden=false;sh.textContent='订阅算每账期订阅预算('+money(st().subBudget)+'),不占今天和本周的额度。';}else sh.hidden=true;
   var t=todayStr();
   $('#dateLbl').textContent=d===t?'今天':d===addDays(t,-1)?'昨天':md(d);
 }
@@ -907,7 +946,8 @@ function addEntry(){
   resetForm();renderAll();
   var b=$('#btnAdd'),old=b.textContent;b.classList.add('ok');b.textContent='✓ 已记';setTimeout(function(){b.classList.remove('ok');b.textContent=old;},900);
   var av=walletInfo().avail;
-  toast('已记 '+e.c+' '+money(e.a)+(S.accounts.length?' · 可动用 '+money(Math.round(av)):''),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});save();renderAll();});
+  var ss=subStats();
+  toast('已记 '+e.c+' '+money(e.a)+(isSub(e)?' · 订阅还剩 '+money(Math.round(ss.remain)):(S.accounts.length?' · 可动用 '+money(Math.round(av)):'')),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});save();renderAll();});
 }
 function delEntry(id){
   var i=S.entries.findIndex(function(x){return x.id===id;});if(i<0)return;
@@ -1029,6 +1069,7 @@ function openSettings(){
     '<div class="two"><label class="fld"><span>每周额度</span><input id="s-w" type="text" inputmode="decimal" value="'+s.weekQuota+'"></label><label class="fld"><span>每账期目标</span><input id="s-m" type="text" inputmode="decimal" value="'+s.monthTarget+'"></label></div>'+
     '<div class="two"><label class="fld"><span>预测按每月日常</span><input id="s-p" type="text" inputmode="decimal" value="'+(s.planMonthly||s.monthTarget)+'"><small>算现金预测用,比目标保守一点</small></label><label class="fld"><span>信用卡分期月供</span><input id="s-i" type="text" inputmode="decimal" value="'+(s.instMonthly||0)+'"></label></div>'+
     '<div class="two"><label class="fld"><span>安全线(缓冲)</span><input id="s-b" type="text" inputmode="decimal" value="'+s.bufferTarget+'"></label><label class="fld"><span>预测到哪天</span><input id="s-h" type="date" value="'+s.horizon+'"></label></div>'+
+    '<div class="two"><label class="fld"><span>每账期订阅预算</span><input id="s-sb" type="text" inputmode="decimal" value="'+(s.subBudget||0)+'"><small>从“每账期目标”里单独拿出,日常额度约每周 '+money(Math.round(dailyTarget()*7/30.4))+'。填 0 就不单独算</small></label><div></div></div>'+
     '<div class="two"><label class="fld"><span>从哪天开始记额度</span><input id="s-t" type="date" value="'+s.trackStart+'"></label><label class="fld"><span>信用卡从哪天开始用</span><input id="s-c" type="date" value="'+s.cardFrom+'"></label></div>'+
     '<div class="two"><label class="fld"><span>宝宝基金期初余额</span><input id="s-o" type="text" inputmode="decimal" value="'+(s.babyOpen||0)+'"></label><label class="fld"><span>狗粮价格</span><input id="s-dp" type="text" inputmode="decimal" value="'+s.dog.price+'"></label></div>'+
     '<div class="btns"><button class="btn" type="button" data-act="setsave">保存</button></div>'+
@@ -1039,6 +1080,7 @@ function setSave(){
   var s=st(),v=function(id){return num($(id).value);};
   var w=v('#s-w'),m=v('#s-m'),pm=v('#s-p'),i=v('#s-i'),b=v('#s-b'),o=v('#s-o'),dp=v('#s-dp');
   if(isFinite(w)&&w>0)s.weekQuota=w;if(isFinite(m)&&m>0)s.monthTarget=m;if(isFinite(pm)&&pm>0)s.planMonthly=pm;if($('#s-h').value)s.horizon=$('#s-h').value;if(isFinite(i)&&i>=0)s.instMonthly=i;if(isFinite(b)&&b>=0)s.bufferTarget=b;if(isFinite(o))s.babyOpen=o;if(isFinite(dp)&&dp>0){s.dog.price=dp;s.chips.forEach(function(c){if(c.dog)c.a=dp;});}
+  var sbv=v('#s-sb');if(isFinite(sbv)&&sbv>=0)s.subBudget=sbv;
   if($('#s-t').value)s.trackStart=$('#s-t').value;if($('#s-c').value)s.cardFrom=$('#s-c').value;
   save();closeSheet();buildChips();renderAll();toast('已保存');
 }
@@ -1099,7 +1141,7 @@ function openBackup(){
     '<button class="menu" type="button" data-act="copyb"><b>复制备份文本</b><span>复制到剪贴板,可以发给自己</span></button>'+
     '<button class="menu" type="button" data-act="import"><b>从备份文件恢复</b><span>选择 .json 文件,会替换现在的数据</span></button>'+
     '<button class="menu" type="button" data-act="paste"><b>粘贴备份文本恢复</b><span>把复制的备份文本粘贴进来</span></button>'+
-    (hasBak()?'<button class="menu" type="button" data-act="restorebak"><b>退回到 1.1 更新前的数据</b><span>更新时自动留了一份,万一数据不对可以退回去</span></button>':'')+
+    bakList().map(function(b){return '<button class="menu" type="button" data-act="restorebak" data-key="'+b[0]+'"><b>退回到'+b[1]+'的数据</b><span>更新时自动留了一份,万一数据不对可以退回去</span></button>';}).join('')+
     '<div class="btns"><button class="btn sec" type="button" data-act="close">关闭</button></div>');
 }
 function doExport(){
@@ -1173,14 +1215,14 @@ document.addEventListener('click',function(ev){
     case 'import':pickFile();break;
     case 'paste':openPaste();break;
     case 'pastego':restore($('#pb').value);break;
-    case 'restorebak':{var rb=null;try{rb=localStorage.getItem(LSBAK);}catch(e){}if(rb)restore(rb);else toast('没有找到更新前的备份');break;}
+    case 'restorebak':{var rb=null;try{if(BAKS.some(function(b){return b[0]===el.dataset.key;}))rb=localStorage.getItem(el.dataset.key);}catch(e){}if(rb)restore(rb);else toast('没有找到更新前的备份');break;}
     case 'goadd':showTab('today');setTimeout(function(){var a=$('#amt');if(a)a.focus();},60);break;
   }
 });
 document.addEventListener('change',function(ev){
   var el=ev.target;
   if(el.matches('input[type=checkbox][data-act=done]')){toggleDone(el.dataset.id,el.checked);return;}
-  if(el.id==='dt'){syncForm();return;}
+  if(el.id==='dt'||el.id==='sp'){syncForm();return;}
 });
 document.addEventListener('keydown',function(ev){
   if((ev.key==='Enter'||ev.key===' ')&&ev.target.id==='walletCard'){ev.preventDefault();showTab('cash');return;}
@@ -1199,7 +1241,7 @@ renderAll();showTab(['today','cash','save'].indexOf(tab)>=0?tab:'today');
 document.addEventListener('visibilitychange',function(){if(!document.hidden){if($('#sheet').hidden){var t=todayStr();if(!$('#dt').value||$('#dt').value<t){$('#dt').value=t;}syncForm();renderAll();}}});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
 if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){navigator.serviceWorker.register('sw.js').catch(function(){});}
-window.__ledger={get S(){return S;},renderAll:renderAll,projection:projection,weekInfo:weekInfo,buildEvents:buildEvents,restore:restore,cardOwed:cardOwed,walletInfo:walletInfo,VERSION:VERSION};
+window.__ledger={get S(){return S;},renderAll:renderAll,projection:projection,weekInfo:weekInfo,buildEvents:buildEvents,restore:restore,cardOwed:cardOwed,subStats:subStats,walletInfo:walletInfo,VERSION:VERSION};
 })();
 </script>
 </body>
