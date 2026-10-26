@@ -200,6 +200,56 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .sw.off .nm{color:var(--ink3);text-decoration:line-through}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 84px);z-index:30;max-width:492px;margin:0 auto;background:var(--ink);color:var(--on);border-radius:14px;padding:12px 16px;display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:14px}
 #toast button{color:var(--y);font-weight:700}
+/* wallet strip */
+.wallet{padding:14px 16px;cursor:pointer;transition:transform .12s ease}
+.wallet:active{transform:scale(.985)}
+.wallet .wal{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:10px;align-items:end}
+.wallet .wc span{display:block;font-size:11.5px;color:var(--ink2);margin-bottom:2px}
+.wallet .wc b{display:block;font-size:17px;font-weight:700;letter-spacing:-.01em;line-height:1.2;white-space:nowrap}
+.wallet .wc.main b{font-size:27px}
+.wallet .wsub{margin-top:9px;font-size:12px;color:var(--ink2);display:flex;justify-content:space-between;gap:8px}
+.wallet .go{color:var(--ink3)}
+.kv.subk{padding:4px 0 4px 12px;border-top:0;font-size:13px}
+.kv.subk span:first-child{color:var(--ink3)}
+.rngbar{margin:2px 0 4px}
+.cap{font-size:11.5px;color:var(--ink3);margin:6px 0 0}
+/* motion */
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes sheetUp{from{transform:translateY(46px);opacity:0}to{transform:none;opacity:1}}
+@keyframes sheetOut{to{transform:translateY(46px);opacity:0}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeOut{to{opacity:0}}
+@keyframes toastIn{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
+@keyframes flash{from{background:var(--y2)}to{background:transparent}}
+@keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes areaIn{from{opacity:0}to{opacity:1}}
+@keyframes ping{0%{r:4;opacity:.7}100%{r:11;opacity:0}}
+.enter>*,.enter #saveBody>*{animation:rise .44s cubic-bezier(.2,.7,.2,1) both}
+.enter>*:nth-child(2),.enter #saveBody>*:nth-child(2){animation-delay:.05s}
+.enter>*:nth-child(3),.enter #saveBody>*:nth-child(3){animation-delay:.1s}
+.enter>*:nth-child(4),.enter #saveBody>*:nth-child(4){animation-delay:.15s}
+.enter>*:nth-child(5),.enter #saveBody>*:nth-child(5){animation-delay:.2s}
+.enter>*:nth-child(6),.enter #saveBody>*:nth-child(6){animation-delay:.25s}
+.enter>*:nth-child(n+7),.enter #saveBody>*:nth-child(n+7){animation-delay:.3s}
+.g{transition:width .75s cubic-bezier(.2,.8,.2,1),height .75s cubic-bezier(.2,.8,.2,1),stroke-dasharray .85s cubic-bezier(.2,.8,.2,1)}
+.btn,.chip,.icon,.menu,.seg button,.tabs button,.x{transition:transform .12s ease,background-color .22s,color .22s,opacity .2s,border-color .2s}
+.btn:active,.chip:active,.icon:active,.menu:active,.seg button:active{transform:scale(.96)}
+.tabs button:active{transform:scale(.94)}
+.btn.ok{background:var(--b);animation:pop .4s}
+.chip[aria-pressed=true]{animation:pop .3s}
+#sheet{animation:sheetUp .3s cubic-bezier(.2,.8,.2,1)}
+#sheet.out{animation:sheetOut .18s ease-in forwards}
+#scrim{animation:fadeIn .22s}
+#scrim.out{animation:fadeOut .18s forwards}
+#toast{animation:toastIn .26s cubic-bezier(.2,.8,.2,1)}
+.row.new,.ev.flash{animation:flash 1.5s ease-out}
+.ev input[type=checkbox]:checked{animation:pop .3s}
+.cal .d.t{animation:pop .6s .2s both}
+.chart.draw .line{stroke-dasharray:1;animation:draw 1.05s cubic-bezier(.3,.7,.2,1) both}
+.chart.draw .area{animation:areaIn 1.2s ease-out both}
+.chart .ping{fill:none;stroke:var(--b);stroke-width:1.5;animation:ping 1.8s ease-out infinite}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -216,6 +266,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
   <!-- ========== 今天 ========== -->
   <section id="tab-today">
     <div id="onboard"></div>
+    <div class="card wallet" id="walletCard" role="button" tabindex="0" data-tab="cash" aria-label="可动用现金,点开看明细"></div>
     <div class="card" id="quick">
       <div class="amtrow">
         <label class="amtbox"><i>¥</i><input id="amt" type="text" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="金额"></label>
@@ -265,7 +316,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 <script>
 (function(){
 'use strict';
-var VERSION='1.0.1';
+var VERSION='1.1.0';
 
 /* ================= utils ================= */
 var $=function(s,r){return (r||document).querySelector(s);};
@@ -332,10 +383,26 @@ function norm(o){
   s.done=(o.done&&typeof o.done==='object')?o.done:{};
   s.saves=Array.isArray(o.saves)?o.saves:[];
   s.backupAt=o.backupAt||null;
+  s.app=o.app||null;
   return s;
 }
-function save(){try{localStorage.setItem(LS,JSON.stringify(S));}catch(e){}}
-function load(){try{var o=JSON.parse(localStorage.getItem(LS)||'null');if(o)S=norm(o);}catch(e){}}
+var LSBAK='ledger.bak.pre110',LSRNG='ledger.rng',RNG=90;
+try{var rv=localStorage.getItem(LSRNG);if(rv!==null&&[0,30,90].indexOf(+rv)>=0)RNG=+rv;}catch(e){}
+function save(){S.app=VERSION;try{localStorage.setItem(LS,JSON.stringify(S));}catch(e){}}
+function load(){
+  var raw=null,o=null;
+  try{raw=localStorage.getItem(LS);}catch(e){}
+  if(!raw)return;
+  try{o=JSON.parse(raw);}catch(e){
+    // 数据损坏:留一份原文,避免被下一次保存覆盖
+    try{localStorage.setItem('ledger.corrupt.'+Date.now(),raw);}catch(e2){}
+    return;
+  }
+  // 从 1.0.x 升级的第一次:自动留一份更新前的原始数据,永不覆盖
+  try{if(o&&typeof o==='object'&&!o.app&&!localStorage.getItem(LSBAK))localStorage.setItem(LSBAK,raw);}catch(e){}
+  if(o)S=norm(o);
+}
+function hasBak(){try{return !!localStorage.getItem(LSBAK);}catch(e){return false;}}
 function hasData(){return S.entries.length||S.defs.length||S.accounts.length;}
 
 /* ================= settings helpers ================= */
@@ -361,8 +428,14 @@ function cardAmount(due){
   var cardAll=entriesIn(c.start,c.stmt,cardOf);
   var norm_=sum(cardAll.filter(function(x){return !x.sp;}),function(x){return x.a;});
   var spc=sum(cardAll.filter(function(x){return x.sp;}),function(x){return x.a;});
-  var closed=t>c.stmt,inst=st().instMonthly||0;
-  var base=closed?norm_:Math.max(norm_,st().planMonthly||st().monthTarget);
+  var closed=t>c.stmt,inst=st().instMonthly||0,base;
+  if(closed)base=norm_;
+  else{
+    // 没出账的账期:已记的 + 剩下的天数按"预测每月日常"的日均估。记得越多、花得越少,预测越准、越低。
+    var total=Math.max(1,daysBetween(c.start,c.stmt)+1),pm=st().planMonthly||st().monthTarget;
+    var rem=Math.max(0,Math.min(total,daysBetween(t<c.start?addDays(c.start,-1):t,c.stmt)));
+    base=norm_+pm/total*rem;
+  }
   return {amount:r2(base+spc+inst),est:!closed,cyc:c};
 }
 
@@ -429,6 +502,27 @@ function projection(){
 }
 function cashAt(d){var P=projection();if(P.at[d]!=null)return P.at[d];var s=P.series;return d<s[0].d?s[0].c:s[s.length-1].c;}
 function invalidate(){_proj=null;}
+function cardOwed(){
+  var t=todayStr(),c=cycleOfDate(t),items=[];
+  var open=r2(sum(entriesIn(c.start,t,cardOf),function(x){return x.a;}));
+  var hasCardDef=S.defs.some(function(d){return d.kind==='card'&&d.on!==false;});
+  if(hasCardDef){
+    buildEvents(addDays(t,1),addDays(t,75)).forEach(function(e){
+      if(e.kind==='card'&&e.est===false&&!S.done[e.id])items.push({date:e.date,amount:e.amount});
+    });
+  }else{
+    var ps=addDays(c.start,-1),pp=cycleOfDate(ps),q=ps.split('-').map(Number),due=ymd(new Date(q[0],q[1],st().dueDay));
+    if(due>t){
+      var amt=r2(sum(entriesIn(pp.start,ps,cardOf),function(x){return x.a;})+(st().instMonthly||0));
+      if(amt>0)items.push({date:due,amount:amt});
+    }
+  }
+  return {open:open,items:items,total:r2(open+sum(items,function(i){return i.amount;}))};
+}
+function walletInfo(){
+  var P=projection(),o=cardOwed();
+  return {cash:P.today,owed:o,avail:r2(P.today-o.total)};
+}
 
 /* ================= week / month ================= */
 function dayTotal(d){return sum(S.entries.filter(function(x){return x.d===d&&!x.sp;}),function(x){return x.a;});}
@@ -449,22 +543,58 @@ function toast(msg,undo){
   t.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){t.hidden=true;},6000);
   if(undo)$('#tUndo').onclick=function(){undo();t.hidden=true;};
 }
+var sheetGen=0;
 function openSheet(html){
-  var s=$('#sheet');$('#toast').hidden=true;s.innerHTML=html;s.hidden=false;$('#scrim').hidden=false;document.body.classList.add('lock');s.scrollTop=0;
+  var s=$('#sheet'),sc=$('#scrim');sheetGen++;$('#toast').hidden=true;
+  s.classList.remove('out');sc.classList.remove('out');
+  s.innerHTML=html;s.hidden=false;sc.hidden=false;document.body.classList.add('lock');s.scrollTop=0;
 }
-function closeSheet(){$('#sheet').hidden=true;$('#scrim').hidden=true;document.body.classList.remove('lock');$('#sheet').innerHTML='';}
+function closeSheet(){
+  var s=$('#sheet'),sc=$('#scrim');if(s.hidden)return;
+  var g=++sheetGen;document.body.classList.remove('lock');
+  function fin(){if(g!==sheetGen)return;s.hidden=true;sc.hidden=true;s.innerHTML='';s.classList.remove('out');sc.classList.remove('out');}
+  if(RM){fin();return;}
+  s.classList.add('out');sc.classList.add('out');setTimeout(fin,180);
+}
+var RM=false;try{RM=window.matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){}
+function buzz(n){try{if(!RM&&navigator.vibrate)navigator.vibrate(n||8);}catch(e){}}
+/* 数字滚动 + 条形/圆环生长 */
+var PREV={},GP={};
+function fmtC(f,v){return f==='i'?money(Math.round(v)):f==='d'?Math.round(v)+' 天':money(v);}
+function paint(root,force){
+  root=root||document;
+  $$('[data-count]',root).forEach(function(el){
+    var k=el.dataset.count,to=parseFloat(el.dataset.v),f=el.dataset.f||'m',from=force?0:PREV[k];
+    PREV[k]=to;if(from===undefined)from=0;
+    if(RM||!isFinite(to)||from===to){el.textContent=fmtC(f,to);return;}
+    var t0=null;
+    (function step(ts){
+      if(t0===null)t0=ts;
+      var p=Math.min(1,(ts-t0)/640),e=1-Math.pow(1-p,3);
+      el.textContent=fmtC(f,p<1?from+(to-from)*e:to);
+      if(p<1&&el.isConnected)requestAnimationFrame(step);
+    })(performance.now());
+  });
+  $$('[data-to]',root).forEach(function(el){
+    var k=el.dataset.key,prop=el.dataset.prop,to=el.dataset.to,from=force?el.dataset.from:(GP[k]!==undefined?GP[k]:el.dataset.from);
+    GP[k]=to;
+    if(RM||from===to){el.style[prop]=to;return;}
+    el.style.transition='none';el.style[prop]=from;void el.getBoundingClientRect();
+    requestAnimationFrame(function(){el.style.transition='';el.style[prop]=to;});
+  });
+}
 
 /* ================= render: today ================= */
-function ringSVG(pct,over){
-  var r=46,c=2*Math.PI*r,p=Math.max(0,Math.min(1,pct));
+function ringSVG(pct,over,key){
+  var r=46,c=2*Math.PI*r,p=Math.max(0,Math.min(1,pct)),to=(c*p).toFixed(1)+' '+c.toFixed(1);
   return '<svg viewBox="0 0 112 112" aria-hidden="true"><circle cx="56" cy="56" r="'+r+'" fill="none" stroke="var(--soft)" stroke-width="11"/>'+
-    '<circle cx="56" cy="56" r="'+r+'" fill="none" stroke="'+(over?'var(--r)':'var(--ink)')+'" stroke-width="11" stroke-linecap="round" stroke-dasharray="'+(c*p).toFixed(1)+' '+c.toFixed(1)+'"/></svg>';
+    '<circle class="fg g" data-key="'+key+'" data-prop="strokeDasharray" data-from="0 '+c.toFixed(1)+'" data-to="'+to+'" cx="56" cy="56" r="'+r+'" fill="none" stroke="'+(over?'var(--r)':'var(--ink)')+'" stroke-width="11" stroke-linecap="round" stroke-dasharray="'+to+'"/></svg>';
 }
 function renderWeek(){
   var w=weekInfo(),over=w.remain<0,pct=w.q>0?w.spent/w.q:0;
   var daily=st().weekQuota/7;
   var html='<h3>本周额度<span class="r">'+md(w.from)+' – '+md(w.we)+'</span></h3>'+
-    '<div class="weekhead"><div class="ring">'+ringSVG(pct,over)+'<div class="c"><b class="num'+(over?' bad':'')+'">'+money(Math.round(Math.abs(w.remain)))+'</b><small>'+(over?'已超出':'还剩')+'</small></div></div>'+
+    '<div class="weekhead"><div class="ring">'+ringSVG(pct,over,'ringw')+'<div class="c"><b class="num'+(over?' bad':'')+'" data-count="wkrem" data-v="'+Math.round(Math.abs(w.remain))+'" data-f="i">'+money(Math.round(Math.abs(w.remain)))+'</b><small>'+(over?'已超出':'还剩')+'</small></div></div>'+
     '<div class="stats"><div class="kv"><span>已花</span><span class="num">'+money(w.spent)+'</span></div>'+
     '<div class="kv"><span>额度</span><span class="num">'+money(w.q)+(w.partial?'<small class="dim"> 折算</small>':'')+'</span></div>'+
     '<div class="kv"><span>'+(over?'剩 '+w.left+' 天':'今天起每天约')+'</span><span class="num">'+(over?'先少花':money(Math.max(0,w.remain)/w.left))+'</span></div></div></div>';
@@ -473,7 +603,7 @@ function renderWeek(){
     var d=addDays(w.ws,i),fut=d>w.t,tot=dayTotal(d),isT=d===w.t;
     var h=Math.min(100,tot/(daily*2)*100),cls=tot<=daily?'var(--b3)':tot<=daily*1.5?'var(--y)':'var(--r)';
     if(d<w.from&&!tot){cls='transparent';}
-    html+='<div class="b7'+(fut?' fut':'')+(isT?' today':'')+'"><em class="num">'+(tot>0?Math.round(tot):'')+'</em><div class="col">'+(fut?'':'<i style="height:'+h.toFixed(0)+'%;background:'+cls+'"></i>')+'<span class="ln" style="bottom:50%"></span></div><span>'+WD[i]+'</span></div>';
+    html+='<div class="b7'+(fut?' fut':'')+(isT?' today':'')+'"><em class="num">'+(tot>0?Math.round(tot):'')+'</em><div class="col">'+(fut?'':'<i class="g" data-key="b7-'+d+'" data-prop="height" data-from="0%" data-to="'+h.toFixed(0)+'%" style="height:'+h.toFixed(0)+'%;background:'+cls+'"></i>')+'<span class="ln" style="bottom:50%"></span></div><span>'+WD[i]+'</span></div>';
   }
   html+='</div>';
   html+='<p class="hint">虚线是平均每天的额度 '+money(daily)+'。'+(w.partial?'这周从 '+md(w.from)+' 开始记,额度按 '+w.total+' 天折算。':'')+'</p>';
@@ -498,8 +628,8 @@ function renderMonth(){
   var cardAll=sum(entriesIn(P.start,P.end,cardOf),function(x){return x.a;})+(st().instMonthly||0);
   var daily=tg/P.total;
   var html='<h3>本账期<span class="r">'+md(P.start)+' – '+md(P.end)+'</span></h3>'+
-    '<div class="num" style="font-size:28px;font-weight:700;letter-spacing:-.02em">'+(over?'<span class="bad">':'<span class="mark">')+money(spent)+'</span> <span class="dim" style="font-size:15px;font-weight:500">/ '+money(tg)+'</span></div>'+
-    '<div class="bar'+(over?' over':'')+'" style="margin-top:10px"><i style="width:'+pct+'%"></i><span class="tick" style="left:calc('+pace+'% - 1px)"></span></div>'+
+    '<div class="num" style="font-size:28px;font-weight:700;letter-spacing:-.02em">'+(over?'<span class="bad"':'<span class="mark"')+' data-count="mspent" data-v="'+spent+'" data-f="m">'+money(spent)+'</span> <span class="dim" style="font-size:15px;font-weight:500">/ '+money(tg)+'</span></div>'+
+    '<div class="bar'+(over?' over':'')+'" style="margin-top:10px"><i class="g" data-key="mbar" data-prop="width" data-from="0%" data-to="'+pct+'%" style="width:'+pct+'%"></i><span class="tick" style="left:calc('+pace+'% - 1px)"></span></div>'+
     '<div class="meta"><span>还剩 '+money(Math.max(0,tg-spent))+' · '+(daysBetween(P.t,P.end)+1)+' 天</span><span>照这个速度整期约 '+money(proj)+'</span></div>'+
     '<div class="meta" style="margin-top:2px"><span>信用卡本期账单预计 '+money(cardAll)+(st().instMonthly?'(含分期 '+money(st().instMonthly)+')':'')+'</span></div>';
   // calendar
@@ -525,7 +655,7 @@ function renderCats(){
   if(!keys.length){html+='<div class="empty" style="padding:8px 0">还没有记录。</div>';}
   keys.forEach(function(k,i){
     var c=clr[i%clr.length];
-    html+='<div class="prow"><span class="dot" style="background:'+c+'"></span><span class="nm">'+esc(k)+'</span><span class="amt num">'+money(by[k])+'<small>'+Math.round(by[k]/tot*100)+'%</small></span><div class="track"><i style="width:'+(by[k]/mx*100).toFixed(0)+'%;background:'+c+'"></i></div></div>';
+    html+='<div class="prow"><span class="dot" style="background:'+c+'"></span><span class="nm">'+esc(k)+'</span><span class="amt num">'+money(by[k])+'<small>'+Math.round(by[k]/tot*100)+'%</small></span><div class="track"><i class="g" data-key="cat-'+esc(k)+'" data-prop="width" data-from="0%" data-to="'+(by[k]/mx*100).toFixed(0)+'%" style="width:'+(by[k]/mx*100).toFixed(0)+'%;background:'+c+'"></i></div></div>';
   });
   var sp=entriesIn(a,b,function(x){return x.sp;});
   if(sp.length)html+='<p class="hint">另有特殊支出 '+money(sum(sp,function(x){return x.a;}))+' 没算进额度。</p>';
@@ -538,6 +668,7 @@ function renderDog(){
   $('#dogCard').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div><div style="font-size:13px;color:var(--ink2)">狗粮 · '+money(dg.price)+' · 每 '+dg.every+' 天</div><div style="margin-top:2px">'+line+'</div></div><button class="btn sec sm" type="button" data-act="dogbuy" style="white-space:nowrap;flex:none">这次买了</button></div>';
 }
 function dayLabel(d,t){var base=md(d)+' 周'+WD[dow(d)];return d===t?'今天 · '+base:d===addDays(t,-1)?'昨天 · '+base:base;}
+var LASTNEW=null,LASTFLASH=null;
 function renderEntries(){
   var t=todayStr(),a=addDays(t,-13),list=entriesIn(a,addDays(t,3));
   if(!list.length){$('#entries').innerHTML='<div class="empty">近 14 天没有记录。</div>';return;}
@@ -548,11 +679,12 @@ function renderEntries(){
     html+='<div class="day"><div class="dayhead"><span>'+dayLabel(d,t)+'</span><span class="num">'+money(sum(rows,function(x){return x.a;}))+'</span></div><div class="list">';
     rows.slice().reverse().forEach(function(x){
       var tags=(x.m==='card'?'<span class="tag">信用卡</span>':'<span class="tag">储蓄卡</span>')+(x.sp?'<span class="tag hl">特殊</span>':'');
-      html+='<div class="row"><div><b>'+esc(x.c)+'</b>'+tags+(x.n?'<div class="rn">'+esc(x.n)+'</div>':'')+'</div><div class="ra num">'+money(x.a)+'</div><button class="x" type="button" data-act="del" data-id="'+esc(x.id)+'" aria-label="删除这一笔">删除</button></div>';
+      html+='<div class="row'+(x.id===LASTNEW?' new':'')+'"><div><b>'+esc(x.c)+'</b>'+tags+(x.n?'<div class="rn">'+esc(x.n)+'</div>':'')+'</div><div class="ra num">'+money(x.a)+'</div><button class="x" type="button" data-act="del" data-id="'+esc(x.id)+'" aria-label="删除这一笔">删除</button></div>';
     });
     html+='</div></div>';
   });
   $('#entries').innerHTML=html;
+  LASTNEW=null;
 }
 function renderOnboard(){
   if(hasData()){$('#onboard').innerHTML='';return;}
@@ -564,32 +696,62 @@ function renderHeader(){
   var nudge=(hasData()&&(days===null||days>=7))?'<button class="nudge" type="button" data-act="backup">'+(days===null?'还没备份':days+' 天没备份')+'</button>':'';
   $('#subline').innerHTML=(d.getMonth()+1)+'月'+d.getDate()+'日 周'+WD[dow(t)]+' · 本周'+(w.remain>=0?'还剩 <b class="num">'+money(w.remain)+'</b>':'<b class="bad num">超 '+money(-w.remain)+'</b>')+nudge;
 }
-function renderToday(){renderOnboard();renderWeek();renderMonth();renderCats();renderDog();renderEntries();}
+function renderWallet(){
+  var w=walletInfo(),buf=st().bufferTarget,t=todayStr(),el=$('#walletCard');
+  if(!S.accounts.length){
+    el.innerHTML='<div class="wsub" style="margin:0"><span>还没填账户余额,填了才会算出“可动用现金”</span><span class="go">去校准 ›</span></div>';return;
+  }
+  var np=buildEvents(t,st().horizon).filter(function(e){return e.defId==='pay'&&e.date>=t;})[0],third;
+  if(np){var dd=Math.max(0,daysBetween(t,np.date));third='<div class="wc"><span>下次发薪</span><b class="num" data-count="wpay" data-v="'+dd+'" data-f="d">'+dd+' 天</b></div>';}
+  else{var hd=r2(w.avail-buf);third='<div class="wc"><span>高于安全线</span><b class="num'+(hd<0?' bad':'')+'" data-count="whead" data-v="'+hd+'" data-f="i">'+money(Math.round(hd))+'</b></div>';}
+  el.innerHTML='<div class="wal"><div class="wc main"><span>可动用现金</span><b class="num'+(w.avail<buf?' bad':'')+'" data-count="wav" data-v="'+w.avail+'" data-f="i">'+money(Math.round(w.avail))+'</b></div>'+
+    '<div class="wc"><span>信用卡待还</span><b class="num" data-count="wowe" data-v="'+w.owed.total+'" data-f="i">'+money(Math.round(w.owed.total))+'</b></div>'+third+'</div>'+
+    '<div class="wsub"><span>手里现金 '+money(Math.round(w.cash))+' − 待还,记一笔就会变</span><span class="go">明细 ›</span></div>';
+}
+function renderToday(){renderOnboard();renderWallet();renderWeek();renderMonth();renderCats();renderDog();renderEntries();}
 
 /* ================= render: cash ================= */
-function chartSVG(){
+var chartPlay=true;
+function winPts(){
   var P=projection(),t=todayStr(),pts=P.series.filter(function(p){return p.d>=t;});
+  if(RNG>0)pts=pts.slice(0,RNG+1);
+  return pts;
+}
+function minOf(pts){var m=null;pts.forEach(function(p){if(!m||p.c<m.c)m=p;});return m;}
+function chartSVG(pts,mn){
   if(pts.length<2)return '';
-  var W=340,H=130,L=6,R=6,T=14,B=20;
-  var lo=Math.min(0,Math.min.apply(null,pts.map(function(p){return p.c;}))),hi=Math.max.apply(null,pts.map(function(p){return p.c;}));
-  hi=Math.max(hi,st().bufferTarget*1.5);
+  var W=340,H=146,L=8,R=8,T=18,B=20,buf=st().bufferTarget;
+  var vals=pts.map(function(p){return p.c;}),lo=Math.min.apply(null,vals),hi=Math.max.apply(null,vals);
+  lo=Math.min(lo,buf);hi=Math.max(hi,buf);
+  var pad=Math.max((hi-lo)*0.14,300);lo-=pad;hi+=pad;
   var X=function(i){return L+(W-L-R)*i/(pts.length-1);},Y=function(v){return T+(H-T-B)*(1-(v-lo)/(hi-lo));};
   var d='M'+X(0).toFixed(1)+' '+Y(pts[0].c).toFixed(1);
   for(var i=1;i<pts.length;i++){d+=' H'+X(i).toFixed(1)+' V'+Y(pts[i].c).toFixed(1);}
   var area=d+' V'+(H-B)+' H'+X(0).toFixed(1)+' Z';
-  var svg='<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="未来现金预测">';
-  svg+='<path d="'+area+'" fill="var(--soft)"/>';
-  var fy=Y(st().bufferTarget);
-  svg+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+fy+'" y2="'+fy+'" stroke="var(--y)" stroke-width="1.6" stroke-dasharray="4 3"/><text x="'+(W-R)+'" y="'+(fy-4)+'" text-anchor="end">安全线 '+money(st().bufferTarget)+'</text>';
-  svg+='<path d="'+d+'" fill="none" stroke="var(--ink)" stroke-width="1.8" stroke-linejoin="round"/>';
-  if(lo<0){var zy=Y(0);svg+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+zy+'" y2="'+zy+'" stroke="var(--r)" stroke-width="1"/>';}
-  var mi=pts.findIndex(function(p){return p===P.min||(p.d===P.min.d);});
-  if(mi>=0){var mx=X(mi),my=Y(pts[mi].c),anchor=mx>W*0.7?'end':mx<W*0.3?'start':'middle';
-    svg+='<circle cx="'+mx+'" cy="'+my+'" r="4" fill="'+(pts[mi].c<st().bufferTarget?'var(--r)':'var(--b)')+'" stroke="var(--card)" stroke-width="1.5"/>';}
-  // month ticks
+  var svg='<svg class="chart'+(chartPlay?' draw':'')+'" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="未来现金预测">';
+  svg+='<path class="area" d="'+area+'" fill="var(--soft)"/>';
+  var fy=Y(buf);
+  svg+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+fy.toFixed(1)+'" y2="'+fy.toFixed(1)+'" stroke="var(--y)" stroke-width="1.6" stroke-dasharray="4 3"/><text x="'+(W-R)+'" y="'+(fy-4).toFixed(1)+'" text-anchor="end">安全线 '+money(buf)+'</text>';
+  if(lo<0&&hi>0){var zy=Y(0);svg+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+zy.toFixed(1)+'" y2="'+zy.toFixed(1)+'" stroke="var(--r)" stroke-width="1"/>';}
+  svg+='<path class="line" pathLength="1" d="'+d+'" fill="none" stroke="var(--ink)" stroke-width="1.8" stroke-linejoin="round"/>';
+  svg+='<circle cx="'+X(0).toFixed(1)+'" cy="'+Y(pts[0].c).toFixed(1)+'" r="3.5" fill="var(--ink)"/><text x="'+(L+2)+'" y="'+(Y(pts[0].c)-8).toFixed(1)+'" text-anchor="start">今天 '+money(Math.round(pts[0].c))+'</text>';
+  var mi=mn?pts.indexOf(mn):-1;
+  if(mi>0){
+    var mx=X(mi),my=Y(pts[mi].c),low=pts[mi].c<buf,anchor=mx>W*0.68?'end':mx<W*0.32?'start':'middle',ty=my<H-B-16?my+14:my-8;
+    svg+='<circle class="ping" cx="'+mx.toFixed(1)+'" cy="'+my.toFixed(1)+'" r="4"/><circle cx="'+mx.toFixed(1)+'" cy="'+my.toFixed(1)+'" r="4" fill="'+(low?'var(--r)':'var(--b)')+'" stroke="var(--card)" stroke-width="1.5"/>'+
+      '<text x="'+mx.toFixed(1)+'" y="'+ty.toFixed(1)+'" text-anchor="'+anchor+'" style="fill:'+(low?'var(--r)':'var(--b)')+';font-weight:600">'+md(pts[mi].d)+' '+money(Math.round(pts[mi].c))+'</text>';
+  }
   var last='';
-  pts.forEach(function(p,i){var m=p.d.slice(0,7);if(m!==last&&p.d.endsWith('-01')){svg+='<line x1="'+X(i)+'" x2="'+X(i)+'" y1="'+(H-B)+'" y2="'+(H-B+4)+'" stroke="var(--ink3)"/><text x="'+X(i)+'" y="'+(H-4)+'" text-anchor="middle">'+(+p.d.split('-')[1])+'月</text>';}last=m;});
+  pts.forEach(function(p,i){
+    var lab=null;
+    if(pts.length<=45){if(i%7===0&&i<pts.length-3)lab=md(p.d);}
+    else{var m=p.d.slice(0,7);if(m!==last&&p.d.endsWith('-01'))lab=(+p.d.split('-')[1])+'月';last=m;}
+    if(lab)svg+='<line x1="'+X(i).toFixed(1)+'" x2="'+X(i).toFixed(1)+'" y1="'+(H-B)+'" y2="'+(H-B+4)+'" stroke="var(--ink3)"/><text x="'+X(i).toFixed(1)+'" y="'+(H-4)+'" text-anchor="middle">'+lab+'</text>';
+  });
   return svg+'</svg>';
+}
+function rngSeg(){
+  return '<div class="seg rngbar">'+[[30,'30 天'],[90,'90 天'],[0,'全部']].map(function(x){return '<button type="button" data-rng="'+x[0]+'" aria-pressed="'+(RNG===x[0])+'">'+x[1]+'</button>';}).join('')+'</div>';
 }
 function cycleStartOf(t){var p=t.split('-').map(Number),pd=st().payDay;return p[2]>=pd?p[0]+'-'+pad(p[1])+'-'+pad(pd):ymd(new Date(p[0],p[1]-2,pd));}
 function evRow(e,t,ctx){
@@ -597,40 +759,48 @@ function evRow(e,t,ctx){
   var sub=md(e.date)+' 周'+WD[dow(e.date)]+(late?' · 已过 '+d+' 天,还没标完成':'')+(e.note?' · '+esc(e.note):'');
   var sign=inn?'+':(ctx==='save'?((e.kind==='save-baby'||e.kind==='wife-save')?'+':'-'):((e.kind==='baby-out'||e.kind==='wife-save')?'':'-'));
   var tag=(e.exp?'<span class="tag hl">预计</span>':'')+(e.est?'<span class="tag hl">估</span>':'')+(e.kind==='baby-out'?'<span class="tag">宝宝基金出</span>':'')+(e.kind==='save-baby'?'<span class="tag">存款</span>':'')+(e.kind==='wife-save'?'<span class="tag">太太·估</span>':'');
-  return '<div class="ev'+(done?' done':'')+(late?' late':'')+'" data-act="evedit" data-id="'+esc(e.id)+'" role="button" tabindex="0">'+
+  return '<div class="ev'+(done?' done':'')+(late?' late':'')+(e.id===LASTFLASH?' flash':'')+'" data-act="evedit" data-id="'+esc(e.id)+'" role="button" tabindex="0">'+
     (inn?'<span class="sp"></span>':'<input type="checkbox" data-act="done" data-id="'+esc(e.id)+'" aria-label="标记 '+esc(e.name)+' 已完成"'+(done?' checked':'')+'>')+
     '<div><div class="evn">'+esc(e.name)+tag+'</div><div class="evs">'+sub+'</div></div>'+
     '<div class="eva num'+(inn?' in':'')+'">'+sign+money(e.amount)+'</div></div>';
 }
 function renderCash(){
-  var P=projection(),t=todayStr(),asOf=S.cashAsOf,bc=baseCash();
-  var html='<h3>手里现金<span class="r">按 '+md(asOf)+' 余额推算</span></h3>'+
-    '<div class="bigcash num"><span class="mark">'+money(P.today)+'</span></div>';
+  var P=projection(),t=todayStr(),asOf=S.cashAsOf,w=walletInfo(),buf=st().bufferTarget,o=w.owed;
+  var html='<h3>可动用现金<span class="r">按 '+md(asOf)+' 余额推算</span></h3>'+
+    '<div class="bigcash num"><span class="mark" data-count="cav" data-v="'+w.avail+'" data-f="m">'+money(w.avail)+'</span></div>'+
+    '<p class="hint" style="margin-top:4px">= 手里现金 − 信用卡还没还的钱。这才是现在真正能花的。</p>'+
+    '<div class="kv" style="margin-top:10px"><span>手里现金(各账户,算到今天)</span><span class="num" data-count="ccash" data-v="'+w.cash+'" data-f="m">'+money(w.cash)+'</span></div>'+
+    '<div class="kv"><span>信用卡待还</span><span class="num" data-count="cowe" data-v="'+o.total+'" data-f="m">'+money(o.total)+'</span></div>';
+  o.items.forEach(function(i){html+='<div class="kv subk"><span>'+md(i.date)+' 要还的账单(已出账)</span><span class="num">'+money(i.amount)+'</span></div>';});
+  html+='<div class="kv subk"><span>本账期已刷(还没出账)</span><span class="num">'+money(o.open)+'</span></div>';
   if(S.accounts.length){
     var tot=Math.max(1,sum(S.accounts,function(a){return Math.max(0,a.bal||0);}));
-    html+='<div style="margin-top:12px">'+S.accounts.map(function(a){return '<div class="acc"><span>'+esc(a.name)+'</span><span class="num" style="font-weight:600">'+money(a.bal)+'</span><div class="track"><i style="width:'+Math.max(0,(a.bal||0)/tot*100).toFixed(0)+'%"></i></div></div>';}).join('')+'</div>';
+    html+='<div style="margin-top:10px">'+S.accounts.map(function(a){var wd=Math.max(0,(a.bal||0)/tot*100).toFixed(0);return '<div class="acc"><span>'+esc(a.name)+'</span><span class="num" style="font-weight:600">'+money(a.bal)+'</span><div class="track"><i class="g" data-key="acc-'+esc(a.id||a.name)+'" data-prop="width" data-from="0%" data-to="'+wd+'%" style="width:'+wd+'%"></i></div></div>';}).join('')+'</div>';
   }else html+='<p class="hint">还没填账户余额。点下面“校准现金”,把各张卡的余额填进去。</p>';
-  html+='<div class="btns"><button class="btn sec sm" type="button" data-act="calib">校准现金</button><button class="btn sec sm" type="button" data-act="addplan">加一笔计划</button></div>';
-  html+='<p class="hint">这是按 '+md(asOf)+' 的实际余额,加上之后的收入和要付的钱推算出来的。隔一阵子拿实际余额校准一次,最准。</p>';
+  html+='<div class="btns"><button class="btn sec sm" type="button" data-act="calib">校准现金</button><button class="btn sec sm" type="button" data-act="addplan">加一笔计划</button><button class="btn sm" type="button" data-act="goadd">记一笔</button></div>';
+  html+='<p class="hint">和“今天”是联动的:记一笔刷信用卡,待还马上多一笔;记一笔储蓄卡,手里现金马上少一笔。隔一阵子拿实际余额校准一次,最准。</p>';
   $('#cashCard').innerHTML=html;
 
   // run card
   var all=buildEvents(addDays(t,-1),st().horizon);
   var pays=all.filter(function(e){return e.defId==='pay'&&e.date>=t;}),np=pays[0];
-  var rh='<h3>未来现金预测<span class="r">到 '+md(st().horizon)+'</span></h3>';
+  var pts=winPts(),mn=minOf(pts);
+  var rh='<h3>未来现金预测<span class="r">'+(RNG?'未来 '+RNG+' 天':'到 '+md(st().horizon))+'</span></h3>';
   if(!S.accounts.length&&!S.defs.length)rh+='<div class="empty" style="padding:8px 0">先校准现金、加几笔计划,这里就会出现预测。</div>';
   else{
-    rh+=chartSVG();
-    var mn=P.min,low=mn&&mn.c<st().bufferTarget;
+    rh+=rngSeg()+chartSVG(pts,mn);
+    var low=mn&&mn.c<buf;
+    rh+='<p class="cap">线是“手里现金”,已经把要还的信用卡账单算进去。</p>';
     rh+='<div class="kv" style="margin-top:8px"><span>最低点</span><span class="num '+(low?'bad':'good')+'">'+(mn?money(mn.c)+' · '+md(mn.d):'—')+'</span></div>';
     if(np){
       var before=cashAt(addDays(np.date,-1)),need=sum(all.filter(function(e){return isCash(e.kind)&&!S.done[e.id]&&e.date>=t&&e.date<np.date;}),function(e){return e.amount;});
       rh+='<div class="kv"><span>下次发薪 '+md(np.date)+'(还有 '+Math.max(0,daysBetween(t,np.date))+' 天)前</span><span class="num">'+money(before)+'</span></div>';
       rh+='<div class="kv"><span>这期间还要付</span><span class="num">'+money(need)+'</span></div>';
     }
-    rh+=low?'<p class="hint bad">预测会低于安全线 '+money(st().bufferTarget)+',看一下哪笔能推后或少存。</p>':'<p class="hint">黄色虚线是安全线。预测最低点在它上面就稳。</p>';
+    rh+=low?'<p class="hint bad">预测会低于安全线 '+money(buf)+',看一下哪笔能推后或少存。</p>':'<p class="hint">黄色虚线是安全线。预测最低点在它上面就稳。</p>';
   }
   $('#runCard').innerHTML=rh;
+  chartPlay=false;
 
   // cycles
   var cs=cycleStartOf(t),end=st().horizon,starts=[cs],cur=cs;
@@ -664,7 +834,7 @@ function renderSave(){
   var ringTarget=due?due.amount:Math.max(1,bb);
   var pct=due?Math.min(1,newDep/due.amount):0;
   html+='<div class="card"><h3>宝宝基金<span class="r">'+(due?'尾款 '+md(due.date):'')+'</span></h3>'+
-    '<div class="weekhead"><div class="ring">'+ringSVG(pct,false)+'<div class="c"><b class="num">'+Math.round(pct*100)+'%</b><small>我的存入占尾款</small></div></div>'+
+    '<div class="weekhead"><div class="ring">'+ringSVG(pct,false,'ringb')+'<div class="c"><b class="num">'+Math.round(pct*100)+'%</b><small>我的存入占尾款</small></div></div>'+
     '<div class="stats"><div class="kv"><span>现在余额</span><span class="num"><b>'+money(bb)+'</b></span></div>'+
     '<div class="kv"><span>我已存入(计划起)</span><span class="num">'+money(newDep)+'</span></div>'+
     (due?'<div class="kv"><span>尾款</span><span class="num">'+money(due.amount)+'</span></div>':'')+'</div></div>';
@@ -691,7 +861,8 @@ function renderSave(){
 
 function renderAll(){
   invalidate();
-  try{renderHeader();renderToday();renderCash();renderSave();}catch(e){console.error(e);}
+  try{renderHeader();renderToday();renderCash();renderSave();paint(document,false);}catch(e){console.error(e);}
+  LASTFLASH=null;
 }
 
 /* ================= tabs ================= */
@@ -699,9 +870,12 @@ var TAB='today';
 function showTab(t){
   TAB=t;
   ['today','cash','save'].forEach(function(k){$('#tab-'+k).hidden=k!==t;});
+  var sec=$('#tab-'+t);sec.classList.remove('enter');void sec.offsetWidth;sec.classList.add('enter');
   $$('.tabs button').forEach(function(b){if(b.dataset.tab===t)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   try{localStorage.setItem(LSTAB,t);}catch(e){}
   window.scrollTo(0,0);
+  if(t==='cash'){chartPlay=true;try{renderCash();}catch(e){}}
+  try{paint(sec,true);}catch(e){}
 }
 
 /* ================= quick add ================= */
@@ -729,9 +903,11 @@ function addEntry(){
   var d=$('#dt').value||todayStr(),m=F.pay||autoPay(d),id=uid();
   var e={id:id,d:d,a:r2(a),c:F.cat,n:$('#nt').value.trim(),m:m,sp:$('#sp').checked?1:0};
   S.entries.push(e);save();
-  var wasDog=F.cat==='狗'&&st().dog.price===e.a&&false;
+  LASTNEW=id;buzz(10);
   resetForm();renderAll();
-  toast('已记 '+e.c+' '+money(e.a),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});save();renderAll();});
+  var b=$('#btnAdd'),old=b.textContent;b.classList.add('ok');b.textContent='✓ 已记';setTimeout(function(){b.classList.remove('ok');b.textContent=old;},900);
+  var av=walletInfo().avail;
+  toast('已记 '+e.c+' '+money(e.a)+(S.accounts.length?' · 可动用 '+money(Math.round(av)):''),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});save();renderAll();});
 }
 function delEntry(id){
   var i=S.entries.findIndex(function(x){return x.id===id;});if(i<0)return;
@@ -740,7 +916,7 @@ function delEntry(id){
 }
 function dogBuy(){
   var dg=st().dog,t=todayStr(),prev=dg.last,id=uid();
-  S.entries.push({id:id,d:t,a:dg.price,c:'狗',n:'狗粮',m:autoPay(t),sp:0});dg.last=t;save();renderAll();
+  S.entries.push({id:id,d:t,a:dg.price,c:'狗',n:'狗粮',m:autoPay(t),sp:0});dg.last=t;LASTNEW=id;buzz(10);save();renderAll();
   toast('已记狗粮 '+money(dg.price),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});st().dog.last=prev;save();renderAll();});
 }
 
@@ -753,7 +929,7 @@ function toggleDone(id,on){
     var sid='p:'+id;S.saves=S.saves.filter(function(x){return x.id!==sid;});
     if(on)S.saves.push({id:sid,b:'baby',a:e.kind==='baby-out'?-e.amount:e.amount,d:todayStr(),w:e.kind==='wife-save'?'wife':e.kind==='save-baby'?'me':'',n:e.name});
   }
-  save();renderAll();
+  LASTFLASH=on?id:null;buzz(on?12:6);save();renderAll();
 }
 function defById(id){return S.defs.find(function(d){return d.id===id;});}
 function openEvEdit(id){
@@ -923,6 +1099,7 @@ function openBackup(){
     '<button class="menu" type="button" data-act="copyb"><b>复制备份文本</b><span>复制到剪贴板,可以发给自己</span></button>'+
     '<button class="menu" type="button" data-act="import"><b>从备份文件恢复</b><span>选择 .json 文件,会替换现在的数据</span></button>'+
     '<button class="menu" type="button" data-act="paste"><b>粘贴备份文本恢复</b><span>把复制的备份文本粘贴进来</span></button>'+
+    (hasBak()?'<button class="menu" type="button" data-act="restorebak"><b>退回到 1.1 更新前的数据</b><span>更新时自动留了一份,万一数据不对可以退回去</span></button>':'')+
     '<div class="btns"><button class="btn sec" type="button" data-act="close">关闭</button></div>');
 }
 function doExport(){
@@ -955,10 +1132,11 @@ function openPaste(){
 
 /* ================= events wiring ================= */
 document.addEventListener('click',function(ev){
-  var el=ev.target.closest('[data-act],[data-tab],[data-cat],[data-fast],#paySeg button');
+  var el=ev.target.closest('[data-act],[data-tab],[data-cat],[data-fast],[data-rng],#paySeg button');
   if(ev.target.id==='scrim'){closeSheet();return;}
   if(!el)return;
   if(el.dataset.tab){showTab(el.dataset.tab);return;}
+  if(el.dataset.rng!=null){RNG=+el.dataset.rng;try{localStorage.setItem(LSRNG,String(RNG));}catch(e){}chartPlay=true;renderCash();paint($('#tab-cash'),false);return;}
   if(el.dataset.cat){F.cat=el.dataset.cat;syncForm();return;}
   if(el.dataset.fast!=null){
     var c=st().chips[+el.dataset.fast];if(!c)return;
@@ -995,6 +1173,8 @@ document.addEventListener('click',function(ev){
     case 'import':pickFile();break;
     case 'paste':openPaste();break;
     case 'pastego':restore($('#pb').value);break;
+    case 'restorebak':{var rb=null;try{rb=localStorage.getItem(LSBAK);}catch(e){}if(rb)restore(rb);else toast('没有找到更新前的备份');break;}
+    case 'goadd':showTab('today');setTimeout(function(){var a=$('#amt');if(a)a.focus();},60);break;
   }
 });
 document.addEventListener('change',function(ev){
@@ -1003,6 +1183,7 @@ document.addEventListener('change',function(ev){
   if(el.id==='dt'){syncForm();return;}
 });
 document.addEventListener('keydown',function(ev){
+  if((ev.key==='Enter'||ev.key===' ')&&ev.target.id==='walletCard'){ev.preventDefault();showTab('cash');return;}
   if(ev.key==='Enter'&&(ev.target.id==='amt'||ev.target.id==='nt')){ev.preventDefault();addEntry();}
   if(ev.key==='Escape'&&!$('#sheet').hidden)closeSheet();
 });
@@ -1018,7 +1199,7 @@ renderAll();showTab(['today','cash','save'].indexOf(tab)>=0?tab:'today');
 document.addEventListener('visibilitychange',function(){if(!document.hidden){if($('#sheet').hidden){var t=todayStr();if(!$('#dt').value||$('#dt').value<t){$('#dt').value=t;}syncForm();renderAll();}}});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
 if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){navigator.serviceWorker.register('sw.js').catch(function(){});}
-window.__ledger={get S(){return S;},renderAll:renderAll,projection:projection,weekInfo:weekInfo,buildEvents:buildEvents,restore:restore};
+window.__ledger={get S(){return S;},renderAll:renderAll,projection:projection,weekInfo:weekInfo,buildEvents:buildEvents,restore:restore,cardOwed:cardOwed,walletInfo:walletInfo,VERSION:VERSION};
 })();
 </script>
 </body>
