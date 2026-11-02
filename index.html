@@ -213,6 +213,8 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .kv.subk span:first-child{color:var(--ink3)}
 .rngbar{margin:2px 0 4px}
 .cap{font-size:11.5px;color:var(--ink3);margin:6px 0 0}
+.backbn{background:var(--y2);border-radius:10px;padding:8px 11px;margin:10px 0 0;font-size:12.5px;color:var(--ink);line-height:1.5}
+.card.backing{border-color:var(--y);box-shadow:0 0 0 2px var(--y2)}
 /* motion */
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes sheetUp{from{transform:translateY(46px);opacity:0}to{transform:none;opacity:1}}
@@ -272,6 +274,8 @@ button{cursor:pointer;border:0;background:none;padding:0}
         <label class="amtbox"><i>¥</i><input id="amt" type="text" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="金额"></label>
         <label class="datebtn"><span id="dateLbl">今天</span><input id="dt" type="date" aria-label="日期"></label>
       </div>
+      <div class="frow" style="margin-top:10px"><div class="seg grow" id="daySeg" role="group" aria-label="记在哪一天"><button type="button" data-day="0" aria-pressed="true">今天</button><button type="button" data-day="1" aria-pressed="false">昨天</button><button type="button" data-day="2" aria-pressed="false">前天</button></div></div>
+      <div class="backbn" id="backBanner" hidden></div>
       <div class="chips" id="fastChips"></div>
       <div class="chips" id="catChips" style="padding-top:2px"></div>
       <p class="hint" id="subHint" style="margin:0 0 2px" hidden></p>
@@ -318,7 +322,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 <script>
 (function(){
 'use strict';
-var VERSION='1.2.0';
+var VERSION='1.3.0';
 
 /* ================= utils ================= */
 var $=function(s,r){return (r||document).querySelector(s);};
@@ -409,7 +413,7 @@ function load(){
   }catch(e){}
   if(o)S=norm(o);
 }
-var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前']];
+var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前'],['ledger.bak.from-1.2.0','1.3 更新前']];
 function bakList(){var out=[];BAKS.forEach(function(b){try{if(localStorage.getItem(b[0]))out.push(b);}catch(e){}});return out;}
 function hasData(){return S.entries.length||S.defs.length||S.accounts.length;}
 
@@ -930,7 +934,17 @@ function syncForm(){
   $$('#catChips .chip').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.cat===F.cat));});
   var sh=$('#subHint');if(F.cat===SUBCAT&&st().subBudget>0&&!$('#sp').checked){sh.hidden=false;sh.textContent='订阅算每账期订阅预算('+money(st().subBudget)+'),不占今天和本周的额度。';}else sh.hidden=true;
   var t=todayStr();
-  $('#dateLbl').textContent=d===t?'今天':d===addDays(t,-1)?'昨天':md(d);
+  var dl=d===t?'今天':d===addDays(t,-1)?'昨天':d===addDays(t,-2)?'前天':md(d);
+  $('#dateLbl').textContent=dl;
+  $$('#daySeg button').forEach(function(b){b.setAttribute('aria-pressed',String(d===addDays(t,-(+b.dataset.day))));});
+  var back=d<t,bn=$('#backBanner');
+  $('#quick').classList.toggle('backing',back);
+  $('#btnAdd').textContent=back?'补记到 '+(dl===md(d)?dl:dl+' '+md(d)):'记下来';
+  if(back){
+    var note='补记中 · '+md(d)+' 周'+WD[dow(d)]+'。记完这几笔,点上面的“今天”回来。';
+    if(p==='debit'&&S.accounts.length&&d<=S.cashAsOf)note+='这天在校准日('+md(S.cashAsOf)+')之前,这笔储蓄卡的钱已经含在余额里,不会再扣一次。';
+    bn.textContent=note;bn.hidden=false;
+  }else bn.hidden=true;
 }
 function resetForm(){
   $('#amt').value='';$('#nt').value='';$('#sp').checked=false;$('#dt').value=todayStr();F.pay=null;F.cat='三餐';
@@ -943,11 +957,14 @@ function addEntry(){
   var e={id:id,d:d,a:r2(a),c:F.cat,n:$('#nt').value.trim(),m:m,sp:$('#sp').checked?1:0};
   S.entries.push(e);save();
   LASTNEW=id;buzz(10);
-  resetForm();renderAll();
+  var wasBack=d<todayStr();
+  resetForm();
+  if(wasBack){$('#dt').value=d;syncForm();}
+  renderAll();
   var b=$('#btnAdd'),old=b.textContent;b.classList.add('ok');b.textContent='✓ 已记';setTimeout(function(){b.classList.remove('ok');b.textContent=old;},900);
   var av=walletInfo().avail;
   var ss=subStats();
-  toast('已记 '+e.c+' '+money(e.a)+(isSub(e)?' · 订阅还剩 '+money(Math.round(ss.remain)):(S.accounts.length?' · 可动用 '+money(Math.round(av)):'')),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});save();renderAll();});
+  toast((wasBack?'已补记 '+md(d)+' ':'已记 ')+e.c+' '+money(e.a)+(isSub(e)?' · 订阅还剩 '+money(Math.round(ss.remain)):(S.accounts.length?' · 可动用 '+money(Math.round(av)):'')),function(){S.entries=S.entries.filter(function(x){return x.id!==id;});save();renderAll();});
 }
 function delEntry(id){
   var i=S.entries.findIndex(function(x){return x.id===id;});if(i<0)return;
@@ -1174,11 +1191,12 @@ function openPaste(){
 
 /* ================= events wiring ================= */
 document.addEventListener('click',function(ev){
-  var el=ev.target.closest('[data-act],[data-tab],[data-cat],[data-fast],[data-rng],#paySeg button');
+  var el=ev.target.closest('[data-act],[data-tab],[data-cat],[data-fast],[data-rng],#paySeg button,#daySeg button');
   if(ev.target.id==='scrim'){closeSheet();return;}
   if(!el)return;
   if(el.dataset.tab){showTab(el.dataset.tab);return;}
   if(el.dataset.rng!=null){RNG=+el.dataset.rng;try{localStorage.setItem(LSRNG,String(RNG));}catch(e){}chartPlay=true;renderCash();paint($('#tab-cash'),false);return;}
+  if(el.closest('#daySeg')){$('#dt').value=addDays(todayStr(),-(+el.dataset.day));syncForm();return;}
   if(el.dataset.cat){F.cat=el.dataset.cat;syncForm();return;}
   if(el.dataset.fast!=null){
     var c=st().chips[+el.dataset.fast];if(!c)return;
