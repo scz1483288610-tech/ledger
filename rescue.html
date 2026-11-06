@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>账本 · 急救页</title>
+<style>
+body{margin:0;background:#f1f2f3;color:#1f2022;font:15px/1.6 system-ui,-apple-system,"PingFang SC","Noto Sans SC",sans-serif;padding:22px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}
+p{margin:6px 0}
+.card{background:#fff;border-radius:16px;padding:16px;margin:14px 0}
+button{font:inherit;padding:12px 16px;border-radius:12px;border:0;background:#1f2022;color:#fff;margin:6px 8px 0 0}
+button.s{background:#e7e9ec;color:#1f2022}
+textarea{width:100%;height:120px;font-size:12px;border:1px solid #d8dbe0;border-radius:10px;padding:8px;box-sizing:border-box}
+.dim{color:#6b6f76;font-size:13px}
+.ok{color:#1a7f4b}.bad{color:#b3261e}
+</style>
+</head>
+<body>
+<h1>账本 · 急救页</h1>
+<p class="dim">账本打不开时用这一页。它不运行账本主程序,只读你手机里的数据。</p>
+
+<div class="card">
+  <b>你的数据</b>
+  <p id="info">读取中…</p>
+  <textarea id="raw" readonly></textarea>
+  <button id="copy">复制数据</button>
+  <button id="dl" class="s">下载成文件</button>
+  <p class="dim">先点“复制数据”或“下载”留一份,再做下面的操作。</p>
+</div>
+
+<div class="card">
+  <b>① 清缓存,重新打开(数据不动)</b>
+  <p class="dim">清掉旧的网页缓存,下次从网上拿最新版。你的记录、账户、计划不会被删。</p>
+  <button id="clr">清缓存并打开账本</button>
+</div>
+
+<div class="card">
+  <b>② 修正设置(数据不动)</b>
+  <p class="dim">把发薪日、账单日、还款日、预测截止日等设置里不合理的值改回正常范围。会先自动留一份修复前的备份。</p>
+  <button id="fix" class="s">修正设置</button>
+  <p id="msg"></p>
+</div>
+
+<script>
+(function(){
+var LS='ledger.v1',$=function(s){return document.querySelector(s);};
+var raw='';try{raw=localStorage.getItem(LS)||'';}catch(e){}
+$('#raw').value=raw;
+function show(){
+  if(!raw){$('#info').innerHTML='<span class="bad">这个浏览器里没有找到账本数据。</span>可能数据被清掉了,或你是在另一个浏览器里打开的。';return;}
+  try{
+    var o=JSON.parse(raw);
+    $('#info').innerHTML='<span class="ok">数据在。</span> 版本 '+(o.app||'1.0.x')+' · 记账 '+(o.entries||[]).length+' 笔 · 账户 '+(o.accounts||[]).length+' 个 · 计划 '+(o.defs||[]).length+' 项 · 约 '+Math.round(raw.length/1024)+' KB';
+  }catch(e){$('#info').innerHTML='<span class="bad">数据不是有效的格式。</span>请先复制数据,发给 Claude 帮你看。';}
+}
+show();
+$('#copy').onclick=function(){var t=$('#raw');t.select();try{document.execCommand('copy');}catch(e){}if(navigator.clipboard)navigator.clipboard.writeText(raw).catch(function(){});$('#copy').textContent='已复制';};
+$('#dl').onclick=function(){var b=new Blob([raw],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='ledger-rescue-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();};
+$('#clr').onclick=function(){
+  var jobs=[];
+  if(navigator.serviceWorker)jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister();}));}));
+  if(window.caches)jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k);}));}));
+  Promise.all(jobs).catch(function(){}).then(function(){location.href='./?r='+Date.now();});
+};
+function pad(n){return String(n).padStart(2,'0');}
+function ymd(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+$('#fix').onclick=function(){
+  var m=$('#msg');
+  if(!raw){m.innerHTML='<span class="bad">没有数据可修。</span>';return;}
+  var o;try{o=JSON.parse(raw);}catch(e){m.innerHTML='<span class="bad">数据格式有问题,没法自动修。请复制数据发给 Claude。</span>';return;}
+  try{localStorage.setItem('ledger.bak.rescue-'+Date.now(),raw);}catch(e){}
+  var st=o.settings=o.settings||{},ch=[];
+  function iv(k,lo,hi,d){var v=Math.round(+st[k]);if(!(isFinite(v)&&v>=lo&&v<=hi)){ch.push(k+' → '+d);st[k]=d;}}
+  iv('payDay',1,31,20);iv('stmtDay',1,31,23);iv('dueDay',1,31,11);
+  var now=new Date(),t=ymd(now),far=new Date(now.getTime()+1100*864e5),def=new Date(now.getTime()+365*864e5);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(st.horizon||'')||st.horizon>ymd(far)||st.horizon<t){ch.push('预测截止日 → '+ymd(def));st.horizon=ymd(def);}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(o.cashAsOf||'')){ch.push('校准日 → '+t);o.cashAsOf=t;}
+  try{localStorage.setItem(LS,JSON.stringify(o));}catch(e){m.innerHTML='<span class="bad">保存失败。</span>';return;}
+  raw=JSON.stringify(o);$('#raw').value=raw;
+  m.innerHTML=ch.length?'<span class="ok">已修正:</span> '+ch.join(';'):'<span class="ok">这些设置本来就正常,没改动。</span>';
+};
+})();
+</script>
+</body>
+</html>

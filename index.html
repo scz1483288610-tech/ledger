@@ -322,7 +322,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 <script>
 (function(){
 'use strict';
-var VERSION='1.3.0';
+var VERSION='1.3.1';
 
 /* ================= utils ================= */
 var $=function(s,r){return (r||document).querySelector(s);};
@@ -350,7 +350,8 @@ function money(n){
 function num(v){var n=parseFloat(String(v).replace(/[,，¥\s]/g,''));return isFinite(n)?n:NaN;}
 function monthsBetween(a,b){
   var out=[],p=a.split('-').map(Number),q=b.split('-').map(Number),y=p[0],m=p[1];
-  while(y<q[0]||(y===q[0]&&m<=q[1])){out.push(y+'-'+pad(m));m++;if(m>12){m=1;y++;}}
+  var guard=0;
+  while((y<q[0]||(y===q[0]&&m<=q[1]))&&guard++<600){out.push(y+'-'+pad(m));m++;if(m>12){m=1;y++;}}
   return out;
 }
 function daysInMonthKey(k){var p=k.split('-').map(Number);return new Date(p[0],p[1],0).getDate();}
@@ -383,7 +384,11 @@ function norm(o){
   if(!s.settings.dog||typeof s.settings.dog!=='object')s.settings.dog={price:120,every:45,last:null};
   if(!Array.isArray(s.settings.chips))s.settings.chips=starter().settings.chips;
   s.accounts=Array.isArray(o.accounts)?o.accounts:[];
-  s.cashAsOf=o.cashAsOf||s.cashAsOf;
+  var rd=/^\d{4}-\d{2}-\d{2}$/,ST=s.settings,tdy=todayStr();
+  function iv(v,lo,hi,d){v=Math.round(+v);return isFinite(v)&&v>=lo&&v<=hi?v:d;}
+  ST.payDay=iv(ST.payDay,1,31,20);ST.stmtDay=iv(ST.stmtDay,1,31,23);ST.dueDay=iv(ST.dueDay,1,31,11);
+  if(!rd.test(ST.horizon||'')||ST.horizon>addDays(tdy,1100)||ST.horizon<tdy)ST.horizon=addDays(tdy,365);
+  s.cashAsOf=rd.test(o.cashAsOf||'')?o.cashAsOf:s.cashAsOf;
   s.entries=Array.isArray(o.entries)?o.entries:[];
   s.defs=Array.isArray(o.defs)?o.defs:[];
   s.done=(o.done&&typeof o.done==='object')?o.done:{};
@@ -413,7 +418,7 @@ function load(){
   }catch(e){}
   if(o)S=norm(o);
 }
-var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前'],['ledger.bak.from-1.2.0','1.3 更新前']];
+var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前'],['ledger.bak.from-1.2.0','1.3 更新前'],['ledger.bak.from-1.3.0','1.3.1 更新前']];
 function bakList(){var out=[];BAKS.forEach(function(b){try{if(localStorage.getItem(b[0]))out.push(b);}catch(e){}});return out;}
 function hasData(){return S.entries.length||S.defs.length||S.accounts.length;}
 
@@ -511,7 +516,8 @@ function projection(){
   S.entries.forEach(function(x){if(x.m!=='card'&&x.d>asOf&&x.d<=end)add(x.d,-x.a);});
   var series=[],c=baseCash(),d=asOf,min=null,today=null;
   series.push({d:d,c:c});
-  while(d<end){
+  var gd=0;
+  while(d<end&&gd++<1500){
     d=addDays(d,1);c=r2(c+(delta[d]||0));
     series.push({d:d,c:c});
   }
@@ -846,7 +852,8 @@ function renderCash(){
 
   // cycles
   var cs=cycleStartOf(t),end=st().horizon,starts=[cs],cur=cs;
-  while(true){var p=cur.split('-').map(Number);var nx=ymd(new Date(p[0],p[1],st().payDay));if(nx>end)break;starts.push(nx);cur=nx;}
+  var gc=0;
+  while(gc++<80){var p=cur.split('-').map(Number);var nx=ymd(new Date(p[0],p[1],st().payDay));if(!(nx>cur)||nx>end)break;starts.push(nx);cur=nx;}
   var evs=buildEvents(addDays(t,-5)<cs?cs:addDays(t,-5),end),h='';
   // full events for cycle sums
   var full=buildEvents(cs,end);
@@ -1252,14 +1259,31 @@ $('#btnSet').addEventListener('click',openSettings);
 $('#amt').addEventListener('input',function(){var v=this.value.replace(/[^0-9.]/g,'');var p=v.split('.');if(p.length>2)v=p[0]+'.'+p.slice(1).join('');this.value=v;});
 
 /* ================= init ================= */
-load();
-resetForm();
-var tab='today';try{tab=localStorage.getItem(LSTAB)||'today';}catch(e){}
-renderAll();showTab(['today','cash','save'].indexOf(tab)>=0?tab:'today');
+function showFatal(err){
+  var raw='';try{raw=localStorage.getItem(LS)||'';}catch(e){}
+  var d=document.createElement('div');
+  d.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:999;background:#f1f2f3;padding:22px 16px;overflow:auto;font:15px/1.6 system-ui,sans-serif;color:#1f2022';
+  d.innerHTML='<h2 style="margin:0 0 8px">账本出了点问题</h2><p style="margin:0 0 10px">你的数据还在手机里,没有丢。错误:'+esc(err&&err.message||err)+'</p><textarea readonly style="width:100%;height:110px;font-size:12px"></textarea><p><button id="fxc" style="padding:10px 14px">复制数据</button> <button id="fxr" style="padding:10px 14px">清缓存后重新打开</button></p><p style="color:#6b6f76;font-size:13px">把复制的数据发给 Claude,就能帮你修好。</p>';
+  document.body.appendChild(d);
+  var ta=d.querySelector('textarea');ta.value=raw;
+  d.querySelector('#fxc').onclick=function(){ta.select();try{document.execCommand('copy');}catch(e){}if(navigator.clipboard)navigator.clipboard.writeText(raw).catch(function(){});};
+  d.querySelector('#fxr').onclick=function(){
+    var jobs=[];
+    if(navigator.serviceWorker)jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister();}));}));
+    if(window.caches)jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k);}));}));
+    Promise.all(jobs).catch(function(){}).then(function(){location.reload();});
+  };
+}
+try{
+  load();
+  resetForm();
+  var tab='today';try{tab=localStorage.getItem(LSTAB)||'today';}catch(e){}
+  renderAll();showTab(['today','cash','save'].indexOf(tab)>=0?tab:'today');
+}catch(err){console.error(err);showFatal(err);}
 document.addEventListener('visibilitychange',function(){if(!document.hidden){if($('#sheet').hidden){var t=todayStr();if(!$('#dt').value||$('#dt').value<t){$('#dt').value=t;}syncForm();renderAll();}}});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
 if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){navigator.serviceWorker.register('sw.js').catch(function(){});}
-window.__ledger={get S(){return S;},renderAll:renderAll,projection:projection,weekInfo:weekInfo,buildEvents:buildEvents,restore:restore,cardOwed:cardOwed,subStats:subStats,walletInfo:walletInfo,VERSION:VERSION};
+window.__ledger={get S(){return S;},norm:norm,renderAll:renderAll,projection:projection,weekInfo:weekInfo,buildEvents:buildEvents,restore:restore,cardOwed:cardOwed,subStats:subStats,walletInfo:walletInfo,VERSION:VERSION};
 })();
 </script>
 </body>
