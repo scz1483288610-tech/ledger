@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>账本 · 数据更新</title>
+<style>
+body{margin:0;background:#f1f2f3;color:#1f2022;font:15px/1.6 system-ui,-apple-system,"PingFang SC","Noto Sans SC",sans-serif;padding:22px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:15px;margin:14px 0 4px}
+p{margin:6px 0}
+.card{background:#fff;border-radius:16px;padding:16px;margin:14px 0}
+button,a.btn{display:inline-block;font:inherit;padding:12px 18px;border-radius:12px;border:0;background:#1f2022;color:#fff;margin:8px 8px 0 0;text-decoration:none}
+button.s,a.btn.s{background:#e7e9ec;color:#1f2022}
+ul{margin:4px 0 0;padding-left:18px}
+li{margin:3px 0}
+.dim{color:#6b6f76;font-size:13px}
+.ok{color:#1a7f4b}.bad{color:#b3261e}.warn{color:#9a6a00}
+.num{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<h1>账本 · 数据更新</h1>
+<p class="dim">按专属链接把账本里的数据改好。改之前会先自动备份,改完可以一键撤销。你记过的每一笔流水都不会动。</p>
+<div id="app"></div>
+
+<script>
+(function(){
+var LS='ledger.v1',LSP='ledger.patches';
+var $=function(s){return document.querySelector(s);};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function r2(n){return Math.round(n*100)/100;}
+function mo(n){n=r2(+n||0);var neg=n<0;n=Math.abs(n);var s=(n%1===0)?n.toLocaleString('en-US'):n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return (neg?'-':'')+'¥'+s;}
+function md(s){var p=String(s).split('-');return p.length===3?(+p[1])+'/'+(+p[2]):s;}
+function clone(o){return JSON.parse(JSON.stringify(o));}
+var app=$('#app');
+
+/* ---- 读取链接里的更新内容 ---- */
+function getPatch(){
+  var h=location.hash||'';
+  var m=h.match(/^#p=([A-Za-z0-9_\-]+)$/);
+  if(!m)return {none:true};
+  try{
+    var s=m[1].replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';
+    var p=JSON.parse(decodeURIComponent(escape(atob(s))));
+    if(!p||typeof p!=='object'||!/^[A-Za-z0-9_-]{1,40}$/.test(p.id||''))return {err:'更新内容的格式不对'};
+    return {p:p};
+  }catch(e){return {err:'更新内容读不出来,链接可能被截断了'};}
+}
+function readData(){
+  var raw=null;try{raw=localStorage.getItem(LS);}catch(e){}
+  if(!raw)return null;
+  try{var o=JSON.parse(raw);if(o&&typeof o==='object')return {raw:raw,o:o};}catch(e){}
+  return {raw:raw,o:null};
+}
+function appliedList(){try{var a=JSON.parse(localStorage.getItem(LSP)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}}
+
+/* ---- 描述一条计划 ---- */
+var KIND={'in':'收入','out':'支出','card':'信用卡','save-baby':'存入宝宝基金','wife-save':'太太存入','baby-out':'宝宝基金支出'};
+function dsc(d){
+  var w=d.when||{},k=KIND[d.kind]||d.kind,t=d.name+'('+k+')';
+  if(w.t==='dates'){t+=':'+(w.list||[]).map(function(x){return md(x[0])+' '+mo(x[1]);}).join('、');}
+  else if(w.t==='monthly'){t+=':每月'+w.day+'日 '+mo(d.amount||0);}
+  return t;
+}
+var SETK={amount:'金额',note:'备注',name:'名称',on:'启用'},WHENK={from:'起始月',day:'日期',to:'结束月'};
+
+/* ---- 试算:不写入,只算出改动清单 ---- */
+function simulate(o,p){
+  var o2=clone(o),L=[],W=[],i;
+  if(!Array.isArray(o2.accounts))o2.accounts=[];
+  if(!Array.isArray(o2.defs))o2.defs=[];
+  var oldTotal=r2(o2.accounts.reduce(function(t,a){return t+(+a.bal||0);},0));
+  (p.accounts||[]).forEach(function(a){
+    var re=new RegExp(a.m),hit=null;
+    for(i=0;i<o2.accounts.length;i++){if(re.test(o2.accounts[i].name||'')){hit=o2.accounts[i];break;}}
+    if(hit){L.push({g:'余额',t:esc(hit.name)+':<span class="num">'+mo(hit.bal)+' → '+mo(a.bal)+'</span>'});hit.bal=r2(a.bal);}
+    else{
+      var n=o2.accounts.length+1,ids={};o2.accounts.forEach(function(x){ids[x.id]=1;});while(ids['a'+n])n++;
+      o2.accounts.push({id:'a'+n,name:a.name,bal:r2(a.bal)});
+      L.push({g:'余额',t:'新增账户 '+esc(a.name)+':<span class="num">'+mo(a.bal)+'</span>'});
+    }
+  });
+  var newTotal=r2(o2.accounts.reduce(function(t,a){return t+(+a.bal||0);},0));
+  if(p.asOf){L.push({g:'余额',t:'校准日:'+esc(o2.cashAsOf||'无')+' → '+esc(p.asOf)});o2.cashAsOf=p.asOf;}
+  L.push({g:'余额',t:'手里现金合计:<span class="num">'+mo(oldTotal)+' → '+mo(newTotal)+'</span>'});
+  function find(id){for(var j=0;j<o2.defs.length;j++)if(o2.defs[j].id===id)return o2.defs[j];return null;}
+  (p.mod||[]).forEach(function(m){
+    var d=find(m.id);
+    if(!d){W.push('找不到计划“'+esc(m.id)+'”,这一项已跳过');return;}
+    var ch=[];
+    Object.keys(m.set||{}).forEach(function(k){ch.push((SETK[k]||k)+' '+esc(d[k]==null?'无':d[k])+' → '+esc(m.set[k]));d[k]=m.set[k];});
+    if(m.when){d.when=d.when||{};Object.keys(m.when).forEach(function(k){ch.push((WHENK[k]||k)+' '+esc(d.when[k]==null?'无':d.when[k])+' → '+esc(m.when[k]));d.when[k]=m.when[k];});}
+    if(m.by){d.by=d.by||{};Object.keys(m.by).forEach(function(k){ch.push(esc(k)+' 月 '+(d.by[k]==null?'默认':mo(d.by[k]))+' → '+mo(m.by[k]));d.by[k]=m.by[k];});}
+    L.push({g:'计划',t:'修改 '+esc(d.name)+':'+ch.join(';')});
+  });
+  (p.add||[]).forEach(function(d){
+    var old=find(d.id);
+    if(old)o2.defs.splice(o2.defs.indexOf(old),1);
+    o2.defs.push(clone(d));
+    L.push({g:'计划',t:(old?'更新 ':'新增 ')+esc(dsc(d))});
+  });
+  (p.del||[]).forEach(function(id){
+    var d=find(id);
+    if(d){o2.defs.splice(o2.defs.indexOf(d),1);L.push({g:'计划',t:'删除 '+esc(d.name)});}
+  });
+  return {o2:o2,lines:L,warns:W};
+}
+
+/* ---- 页面 ---- */
+function box(h){var d=document.createElement('div');d.className='card';d.innerHTML=h;app.appendChild(d);return d;}
+function render(){
+  app.innerHTML='';
+  var g=getPatch();
+  if(g.none){box('<b>这一页要用专属链接打开</b><p class="dim">请回到和 Claude 的对话里,点我发给你的那个链接。直接打开这一页没有任何内容可更新。</p><a class="btn s" href="./">打开账本</a>');return;}
+  if(g.err){box('<b class="bad">'+esc(g.err)+'</b><p class="dim">请回到对话里重新点一次链接。你的数据没有被改动。</p>');return;}
+  var p=g.p,data=readData(),done=appliedList().indexOf(p.id)>=0,bkKey='ledger.bak.pre-'+p.id,hasBk=false;
+  try{hasBk=!!localStorage.getItem(bkKey);}catch(e){}
+  if(!data){box('<b class="bad">这个浏览器里没有找到账本数据</b><p class="dim">可能你平时是在另一个浏览器里用账本的。请用你平时打开账本的那个浏览器再点一次链接。什么都没有被改动。</p>');return;}
+  if(!data.o){box('<b class="bad">账本数据的格式有问题</b><p class="dim">为了安全,我没有动它。请把数据复制发给 Claude。</p><textarea readonly style="width:100%;height:100px;font-size:12px">'+esc(data.raw)+'</textarea>');return;}
+  var title=esc(p.title||'数据更新');
+  if(done){
+    var c=box('<b class="ok">“'+title+'”已经应用过了</b><p class="dim">不会重复应用。如果想退回到更新之前的数据,可以撤销。</p>'+
+      '<a class="btn" href="./">打开账本</a>'+(hasBk?'<button class="s" id="undo">撤销这次更新</button>':''));
+    if(hasBk)$('#undo').onclick=undo.bind(null,p,bkKey);
+    return;
+  }
+  var sim=simulate(data.o,p),byG={};
+  sim.lines.forEach(function(l){(byG[l.g]=byG[l.g]||[]).push(l.t);});
+  var h='<b>“'+title+'”</b><p class="dim">下面是会发生的改动。确认没问题就点“应用更新”。</p>';
+  Object.keys(byG).forEach(function(k){h+='<h2>'+esc(k)+'</h2><ul>'+byG[k].map(function(t){return '<li>'+t+'</li>';}).join('')+'</ul>';});
+  if(sim.warns.length)h+='<h2 class="warn">提示</h2><ul>'+sim.warns.map(function(t){return '<li class="warn">'+t+'</li>';}).join('')+'</ul>';
+  h+='<p class="dim">应用前会自动备份现在的数据。</p><button id="go">应用更新</button><a class="btn s" href="./">先不改,打开账本</a>';
+  box(h);
+  $('#go').onclick=function(){apply(p,data,sim,bkKey);};
+}
+function apply(p,data,sim,bkKey){
+  try{
+    if(!localStorage.getItem(bkKey))localStorage.setItem(bkKey,data.raw);
+    var out=JSON.stringify(sim.o2);
+    localStorage.setItem(LS,out);
+    var chk=JSON.parse(localStorage.getItem(LS));
+    if(!chk||chk.cashAsOf!==sim.o2.cashAsOf||(chk.defs||[]).length!==sim.o2.defs.length)throw new Error('写入后核对不一致');
+    var a=appliedList();if(a.indexOf(p.id)<0)a.push(p.id);localStorage.setItem(LSP,JSON.stringify(a));
+  }catch(e){
+    try{localStorage.setItem(LS,data.raw);}catch(e2){}
+    app.innerHTML='';box('<b class="bad">没能写入,已恢复成更新前</b><p class="dim">'+esc(e&&e.message||e)+'。你的数据没有变化,请把这行字发给 Claude。</p>');
+    return;
+  }
+  app.innerHTML='';
+  box('<b class="ok">已更新</b><p class="dim">现在可以打开账本看一下。如果不对,回到这个链接可以撤销。</p><a class="btn" href="./">打开账本</a><button class="s" id="undo">撤销这次更新</button>');
+  $('#undo').onclick=undo.bind(null,p,bkKey);
+}
+function undo(p,bkKey){
+  var bk=null;try{bk=localStorage.getItem(bkKey);}catch(e){}
+  if(!bk){app.innerHTML='';box('<b class="bad">没有找到更新前的备份</b>');return;}
+  try{
+    JSON.parse(bk);
+    localStorage.setItem(LS,bk);
+    localStorage.setItem(LSP,JSON.stringify(appliedList().filter(function(x){return x!==p.id;})));
+  }catch(e){app.innerHTML='';box('<b class="bad">撤销失败</b><p class="dim">'+esc(e&&e.message||e)+'</p>');return;}
+  app.innerHTML='';
+  box('<b class="ok">已退回到更新之前的数据</b><p class="dim">想再更新,重新点一次链接就行。</p><a class="btn" href="./">打开账本</a>');
+}
+render();
+})();
+</script>
+</body>
+</html>
