@@ -322,7 +322,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 <script>
 (function(){
 'use strict';
-var VERSION='1.3.1';
+var VERSION='1.3.2';
 
 /* ================= utils ================= */
 var $=function(s,r){return (r||document).querySelector(s);};
@@ -418,7 +418,7 @@ function load(){
   }catch(e){}
   if(o)S=norm(o);
 }
-var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前'],['ledger.bak.from-1.2.0','1.3 更新前'],['ledger.bak.from-1.3.0','1.3.1 更新前']];
+var BAKS=[['ledger.bak.pre110','1.1 更新前'],['ledger.bak.from-1.1.0','1.2 更新前'],['ledger.bak.from-1.2.0','1.3 更新前'],['ledger.bak.from-1.3.0','1.3.1 更新前'],['ledger.bak.from-1.3.1','1.3.2 更新前']];
 function bakList(){var out=[];BAKS.forEach(function(b){try{if(localStorage.getItem(b[0]))out.push(b);}catch(e){}});return out;}
 function hasData(){return S.entries.length||S.defs.length||S.accounts.length;}
 
@@ -510,8 +510,12 @@ function projection(){
   var delta={};
   function add(d,v){delta[d]=(delta[d]||0)+v;}
   buildEvents(addDays(asOf,1),end).forEach(function(e){
-    if(isIn(e.kind))add(e.date,e.amount);
-    else if(isCash(e.kind))add(e.date,-e.amount);
+    var when=e.date,dn=S.done[e.id];
+    // 打钩时记了完成日:提前还/提前付的钱当天就出去了,按完成日算;完成日不晚于校准日,说明已经含在余额里
+    if(typeof dn==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(dn)&&dn<when)when=dn;
+    if(when<=asOf)return;
+    if(isIn(e.kind))add(when,e.amount);
+    else if(isCash(e.kind))add(when,-e.amount);
   });
   S.entries.forEach(function(x){if(x.m!=='card'&&x.d>asOf&&x.d<=end)add(x.d,-x.a);});
   var series=[],c=baseCash(),d=asOf,min=null,today=null;
@@ -537,7 +541,7 @@ function cardOwed(){
   var hasCardDef=S.defs.some(function(d){return d.kind==='card'&&d.on!==false;});
   if(hasCardDef){
     buildEvents(addDays(t,1),addDays(t,75)).forEach(function(e){
-      if(e.kind==='card'&&e.est===false&&!S.done[e.id])items.push({date:e.date,amount:e.amount});
+      if(e.kind==='card'&&e.est===false&&!S.done[e.id])items.push({id:e.id,date:e.date,amount:e.amount});
     });
   }else{
     var ps=addDays(c.start,-1),pp=cycleOfDate(ps),q=ps.split('-').map(Number),due=ymd(new Date(q[0],q[1],st().dueDay));
@@ -819,7 +823,10 @@ function renderCash(){
     '<p class="hint" style="margin-top:4px">= 手里现金 − 信用卡还没还的钱。这才是现在真正能花的。</p>'+
     '<div class="kv" style="margin-top:10px"><span>手里现金(各账户,算到今天)</span><span class="num" data-count="ccash" data-v="'+w.cash+'" data-f="m">'+money(w.cash)+'</span></div>'+
     '<div class="kv"><span>信用卡待还</span><span class="num" data-count="cowe" data-v="'+o.total+'" data-f="m">'+money(o.total)+'</span></div>';
-  o.items.forEach(function(i){html+='<div class="kv subk"><span>'+md(i.date)+' 要还的账单(已出账)</span><span class="num">'+money(i.amount)+'</span></div>';});
+  o.items.forEach(function(i){
+    html+='<div class="kv subk"><span>'+md(i.date)+' 要还的账单(已出账)</span><span class="num">'+money(i.amount)+'</span></div>';
+    if(i.id)html+='<div class="btns" style="margin:2px 0 8px"><button class="btn sec sm" type="button" data-act="cardpaid" data-id="'+esc(i.id)+'">这期已经还清了</button></div>';
+  });
   html+='<div class="kv subk"><span>本账期已刷(还没出账)</span><span class="num">'+money(o.open)+'</span></div>';
   if(S.accounts.length){
     var tot=Math.max(1,sum(S.accounts,function(a){return Math.max(0,a.bal||0);}));
@@ -988,7 +995,7 @@ function dogBuy(){
 function findEvent(id){return buildEvents('2000-01-01','2100-01-01').filter(function(e){return e.id===id;})[0]||null;}
 function toggleDone(id,on){
   var e=findEvent(id);if(!e)return;
-  if(on)S.done[id]=1;else delete S.done[id];
+  if(on)S.done[id]=todayStr();else delete S.done[id];
   if(e.kind==='save-baby'||e.kind==='wife-save'||e.kind==='baby-out'){
     var sid='p:'+id;S.saves=S.saves.filter(function(x){return x.id!==sid;});
     if(on)S.saves.push({id:sid,b:'baby',a:e.kind==='baby-out'?-e.amount:e.amount,d:todayStr(),w:e.kind==='wife-save'?'wife':e.kind==='save-baby'?'me':'',n:e.name});
@@ -996,6 +1003,21 @@ function toggleDone(id,on){
   LASTFLASH=on?id:null;buzz(on?12:6);save();renderAll();
 }
 function defById(id){return S.defs.find(function(d){return d.id===id;});}
+function openCardPaid(id){
+  var e=findEvent(id);if(!e)return;
+  openSheet('<h2>这期账单已经还清了?</h2><div class="sub">'+md(e.date)+' 到期的账单,账本估的是 '+money(e.amount)+'。填你实际还的金额,账本会把待还清掉,现金同步减少。</div>'+
+    '<label class="fld"><span>实际还了多少</span><input id="cp-a" type="text" inputmode="decimal" value="'+e.amount+'"></label>'+
+    '<div class="sub">如果你已经在“校准现金”里填过还款后的余额,现金不会再减一次。</div>'+
+    '<div class="btns"><button class="btn" type="button" data-act="cardpaidok" data-id="'+esc(id)+'">确认已还清</button><button class="btn sec" type="button" data-act="close">取消</button></div>');
+}
+function cardPaidOk(id){
+  var e=findEvent(id);if(!e)return;
+  var a=num($('#cp-a').value);if(!isFinite(a)||a<0){toast('填一下实际还了多少');return;}
+  var d=defById(e.defId),m=e.date.slice(0,7),oldBy=d.by?clone(d.by):null,oldDone=S.done[id];
+  d.by=d.by||{};d.by[m]=r2(a);S.done[id]=todayStr();
+  save();closeSheet();renderAll();
+  toast('已记为还清:'+money(a),function(){if(oldBy)d.by=oldBy;else delete d.by;if(oldDone===undefined)delete S.done[id];else S.done[id]=oldDone;save();renderAll();});
+}
 function openEvEdit(id){
   var e=findEvent(id);if(!e)return;
   var d=defById(e.defId),w=d.when,m=e.date.slice(0,7);
@@ -1228,6 +1250,8 @@ document.addEventListener('click',function(ev){
     case 'npsave':npSave();break;
     case 'evsave':evSave(id,el.dataset.mode);break;
     case 'evoff':evOff(id);break;
+    case 'cardpaid':openCardPaid(id);break;
+    case 'cardpaidok':cardPaidOk(id);break;
     case 'calib':openCalib();break;
     case 'accadd':{var box=$('#accs'),wrap=document.createElement('div');wrap.innerHTML=accRow({name:'',bal:''},0);box.appendChild(wrap.firstChild);break;}
     case 'calsave':calSave();break;
